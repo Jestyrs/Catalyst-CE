@@ -1,0 +1,38 @@
+# .clang-tidy
+# Configuration for clang-tidy static analysis tool
+
+Checks: >
+  # Disable all checks first, then enable specific categories/checks
+  -*,
+  bugprone-*,               # Potential logical errors, resource leaks, etc.
+  google-*,                 # Checks based on Google C++ Style Guide
+  modernize-*,             # Suggests modern C++ replacements (C++11/14/17/20)
+  performance-*,           # Performance antipatterns or optimization opportunities
+  readability-*,           # Improves code readability and maintainability
+  portability-*,           # Checks for non-portable code constructs
+  cppcoreguidelines-*       # Checks related to the C++ Core Guidelines
+
+  # --- Examples of specific checks to potentially disable if noisy ---
+  # -google-build-using-namespace   # Allow 'using namespace' in specific contexts if needed
+  # -modernize-use-nodiscard      # Might be too aggressive initially
+  # -readability-magic-numbers    # May require fine-tuning with CheckOptions
+  # -cppcoreguidelines-pro-type-union-access # If unions are used intentionally
+  # -cppcoreguidelines-owning-memory # May conflict with certain RAII patterns
+
+WarningsAsErrors: '' # Treat warnings from specific checks as errors (e.g., 'bugprone-*')
+
+# Analyze headers within our project directories only. Adjust path if needed.
+HeaderFilterRegex: '^(core|cef_integration|platform)/include/.*$'
+AnalyzeTemporaryDtors: true # Enable analysis of temporary object destructors
+InheritParentConfig: false # Do not inherit configurations from parent directories
+
+# Check-specific options (examples)
+CheckOptions:
+  # Example: Configure allowed magic numbers if readability-magic-numbers is enabled
+  # - key:             readability-magic-numbers.AllowedLiterals
+  #   value:           '0, 1, 2, 3'
+  # Example: Allow specific abbreviations if readability-identifier-naming is strict
+  # - key:             readability-identifier-naming.VariableCase
+  #   value:           'camelBack' # Or snake_case, etc.
+  # - key:             readability-identifier-naming.IgnoreAbbreviations
+  #   value:           'UI;API;ID;CPU;GPU;IO;IPC;CDN' # Semicolon-separated list

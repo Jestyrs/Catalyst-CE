@@ -1,0 +1,5 @@
+# .clang-format
+# Use the predefined Google C++ Style Guide settings
+BasedOnStyle: Google
+# Optional: Add specific overrides if necessary, but keep minimal
+# e.g., ColumnLimit: 100
