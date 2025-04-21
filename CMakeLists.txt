@@ -4,6 +4,10 @@ cmake_minimum_required(VERSION 3.21) # Specify minimum CMake version
 
 project(GameLauncher VERSION 0.1.0 LANGUAGES CXX)
 
+# Enable testing with CTest
+enable_testing()
+include(CTest)
+
 # Set the C++ standard required for the project
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,16 +37,16 @@ add_subdirectory(tests)
 #   target_link_libraries(GameLauncherLauncher PRIVATE CEF::cef_sandbox) # Static linking for sandbox
 # endif()
 
-# --- Dependency Management (Placeholder) ---
-# TODO: Configure dependency management (e.g., FetchContent, Conan)
+# --- Dependency Management ---
+# Configure dependency management (e.g., FetchContent, Conan)
 # Example using FetchContent for GoogleTest:
-# include(FetchContent)
-# FetchContent_Declare(
-#   googletest
-#   GIT_REPOSITORY https://github.com/google/googletest.git
-#   GIT_TAG    release-1.12.1 # Or a specific commit/tag
-# )
-# FetchContent_MakeAvailable(googletest)
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  GIT_REPOSITORY https://github.com/google/googletest.git
+  GIT_TAG    release-1.12.1 # Or a specific commit/tag
+)
+FetchContent_MakeAvailable(googletest)
 
 # --- Build Types ---
 # Standard build types (Debug, Release) are usually handled by CMake/Generators.
@@ -52,7 +56,6 @@ add_subdirectory(tests)
 
 # --- Testing Configuration (Placeholder) ---
 # TODO: Enable testing and add tests discovered from the 'tests' subdirectory
-# enable_testing()
 # add_test(NAME CoreUnitTests COMMAND ...)
 
 # --- Installation Rules (Placeholder) ---
@@ -63,4 +66,3 @@ add_subdirectory(tests)
 
 message(STATUS "Project: ${PROJECT_NAME} configured.")
 message(STATUS "CXX Standard: ${CMAKE_CXX_STANDARD}")
-

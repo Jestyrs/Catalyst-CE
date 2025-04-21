@@ -4,6 +4,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <memory> // For factory return type
 
 // Forward declaration for potential status objects later
 // namespace absl { class Status; } 
@@ -45,6 +46,9 @@ class IUserSettings {
 
   // TODO: Add methods for other data types if needed (e.g., float, lists).
 };
+
+// Factory function to create an in-memory implementation of IUserSettings.
+std::unique_ptr<IUserSettings> CreateInMemoryUserSettings();
 
 } // namespace core
 } // namespace game_launcher

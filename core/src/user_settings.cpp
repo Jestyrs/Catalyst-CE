@@ -5,6 +5,7 @@
 #include <string>
 #include <unordered_map>
 #include <variant> // To store different types in the map
+#include <memory> // For std::make_unique
 
 namespace game_launcher {
 namespace core {
@@ -80,3 +81,13 @@ class InMemoryUserSettings : public IUserSettings {
 } // namespace core
 } // namespace game_launcher
 
+// Factory function for InMemoryUserSettings
+namespace game_launcher {
+namespace core {
+
+std::unique_ptr<IUserSettings> CreateInMemoryUserSettings() {
+    return std::make_unique<InMemoryUserSettings>();
+}
+
+} // namespace core
+} // namespace game_launcher

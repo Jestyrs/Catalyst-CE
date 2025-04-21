@@ -11,19 +11,19 @@
 # Example: Unit tests for the 'core' module
 add_executable(CoreTests
     # Add test source files here, e.g.:
+    core/user_settings_test.cpp
     # core/authentication_test.cpp
     # core/game_management_test.cpp
 )
 
 # Link tests against the library being tested and the test framework
 target_link_libraries(CoreTests PRIVATE
-    core      # Library under test
-    # GTest::gtest_main # GoogleTest main library
+    core              # Library under test
+    GTest::gtest_main # GoogleTest main library
     # GTest::gmock      # GoogleMock if needed
 )
 
 # Add tests to CTest
-# add_test(NAME CoreUnitTests COMMAND CoreTests)
+add_test(NAME CoreUnitTests COMMAND CoreTests)
 
 message(STATUS "Configuring tests directory")
-
