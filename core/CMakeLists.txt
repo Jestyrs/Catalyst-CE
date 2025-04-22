@@ -1,22 +1,24 @@
 # core/CMakeLists.txt
 
-# Require C++17 for std::filesystem etc.
-set(CMAKE_CXX_STANDARD 17)
+# Require C++20
+set(CMAKE_CXX_STANDARD 20) # Changed from 17 to 20
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF) # Ensure standard conformance, disable GNU extensions
 
 # Define the 'core' library target
 # Initially, it will be empty or contain placeholder source files.
 # Add source files as they are developed.
-add_library(core STATIC # Or SHARED if preferred/needed
-    # Add C++ source files for the core module here, e.g.:
-    src/authentication.cpp
-    src/background_task_manager.cpp
-    src/game_management.cpp
-    src/ipc_service_layer.cpp
+set(CORE_SOURCES
     src/user_settings.cpp
-    src/json_user_settings.cpp # Added new user settings implementation
-    # include/game_launcher/core/authentication.h # Headers typically not listed here
+    src/json_user_settings.cpp
+    src/background_task_manager.cpp
+    src/authentication_manager.cpp # Add the new source file
+    src/basic_game_management_service.cpp 
+    src/basic_ipc_service.cpp
+    # Add other core source files here
 )
+
+add_library(core STATIC ${CORE_SOURCES})
 
 # Specify include directories for this target
 # PUBLIC: Consumers linking 'core' also get these includes
@@ -25,13 +27,36 @@ add_library(core STATIC # Or SHARED if preferred/needed
 target_include_directories(core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> # Include dir within core
     $<INSTALL_INTERFACE:include> # Where headers are installed
+    include/game_launcher/core
+    PRIVATE
+    ${cef_binary_SOURCE_DIR} # Add CEF include directory
 )
 # Add third_party include for nlohmann/json
-target_include_directories(core PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/../third_party
+# Must be PUBLIC because json_user_settings.h includes json.hpp
+target_include_directories(core PUBLIC 
+    ${CMAKE_SOURCE_DIR}/third_party # Use absolute path for robustness
 )
 
-# Link against dependencies if needed (e.g., Abseil)
-# target_link_libraries(core PRIVATE Abseil::status)
+# Link against Abseil for status handling
+target_link_libraries(core PUBLIC
+    absl::base        # Fundamental Abseil utilities
+    absl::status      # For absl::Status
+    absl::statusor    # For absl::StatusOr
+    absl::strings     # For StrCat etc.
+    absl::flat_hash_map # For hash map/set implementations
+    # --- REMOVED: absl::common --- Target does not exist in this Abseil version
+)
+
+# Link dependencies
+target_link_libraries(core PUBLIC
+    # Public dependencies (needed by headers)
+    absl::status
+    absl::statusor
+    nlohmann_json::nlohmann_json
+    PRIVATE
+    # Private dependencies (only needed by implementation)
+    absl::strings
+    # absl::log # Removed - Using CEF logging now
+)
 
 message(STATUS "Configuring core library target")
