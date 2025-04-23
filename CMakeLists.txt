@@ -1,18 +1,63 @@
 # CMakeLists.txt (Root)
 
-cmake_minimum_required(VERSION 3.22) # Specify minimum CMake version
+cmake_minimum_required(VERSION 3.20) # Increased version for FetchContent best practices
 
 project(GameLauncher VERSION 0.1.0 LANGUAGES CXX)
 
+# MSVC Specific: Set the runtime library BEFORE project()
+if(MSVC)
+  # CEF typically requires the dynamic runtime (/MD or /MDd)
+  # Set the CMAKE_MSVC_RUNTIME_LIBRARY variable to control this.
+  # MultiThreaded = /MT (Release Static)
+  # MultiThreadedDebug = /MTd (Debug Static)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "MSVC Runtime Library" FORCE)
+  message(STATUS "MSVC Runtime Library set to: ${CMAKE_MSVC_RUNTIME_LIBRARY}")
+  # Add flags to treat warnings as errors and set Unicode character set
+  add_compile_options(
+      /W4       # Warning level 4
+      /WX       # Treat warnings as errors
+      /utf-8    # Use Unicode character set
+  )
+  # Force iterator debugging off for Debug builds globally to avoid conflicts with CEF
+  if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+      add_compile_definitions(_ITERATOR_DEBUG_LEVEL=0)
+      message(STATUS "MSVC Iterator Debug Level forced to 0 for Debug builds.")
+  endif()
+endif()
+
+# Set the MSVC runtime library consistently for all targets
+# Must be done BEFORE adding subdirectories or FetchContent that builds code
+if(MSVC)
+  # Use the multi-threaded DLL runtime (/MD or /MDd)
+  # Use "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" for CMake >= 3.15
+  # set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "MSVC Runtime library" FORCE)
+endif()
+
 # Set the MSVC runtime library globally for consistency (/MDd or /MD)
-set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "MSVC Runtime Library" FORCE)
+# set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "MSVC Runtime Library" FORCE)
 
 # --- FetchContent Configuration ---
 # Store downloaded sources outside the main build dir for persistence
 set(FETCHCONTENT_BASE_DIR ${CMAKE_SOURCE_DIR}/.dependencies)
 message(STATUS "FetchContent base directory set to: ${FETCHCONTENT_BASE_DIR}")
+set(FETCHCONTENT_QUIET OFF) # Add this line for verbose output
 include(FetchContent)
-# --- End FetchContent Config ---
+
+# --- Explicitly configure libcurl features EARLIER ---
+# These will be used when add_subdirectory(curl) is called later
+# --- Configure libcurl build options BEFORE MakeAvailable ---
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build curl static lib" FORCE) # Prefer static lib
+set(BUILD_STATIC_LIBS ON CACHE BOOL "Build curl static lib" FORCE) # Explicitly ON
+set(BUILD_CURL_EXE OFF CACHE BOOL "Disable curl executable tool" FORCE)
+set(CMAKE_USE_SCHANNEL ON CACHE BOOL "Use Schannel on Windows for curl" FORCE) # Often preferred on Win
+set(CURL_USE_OPENSSL OFF CACHE BOOL "Disable OpenSSL for curl" FORCE) # Use Schannel instead
+set(HTTP_ONLY ON CACHE BOOL "Build curl with only HTTP(S) support" FORCE)
+set(ENABLE_MANUAL OFF CACHE BOOL "Disable curl manual pages" FORCE)
+set(CURL_USE_LIBPSL OFF CACHE BOOL "Disable Public Suffix List support" FORCE)
+set(ENABLE_LDAP OFF CACHE BOOL "Disable LDAP support" FORCE)
+set(ENABLE_LDAPS OFF CACHE BOOL "Disable LDAPS support" FORCE)
+# --- End early libcurl configuration ---
+# --- End libcurl configuration ---
 
 # Set C++ Standard FIRST
 set(CMAKE_CXX_STANDARD 20)
@@ -30,12 +75,8 @@ if(MSVC)
     # CMP0091: MSVC runtime library flags are selected by an abstraction.
     cmake_policy(SET CMP0091 NEW)
     # Use the Debug/Release DLL runtime (/MDd, /MD). Change if you require static runtime (/MTd, /MT).
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+    # set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
     message(STATUS "MSVC Runtime Library set to: ${CMAKE_MSVC_RUNTIME_LIBRARY}") # For verification
-
-    # Force iterator debugging off for Debug builds globally to match pre-built CEF
-    string(APPEND CMAKE_CXX_FLAGS_DEBUG " /D_ITERATOR_DEBUG_LEVEL=0 /D_HAS_ITERATOR_DEBUGGING=0")
-    message(STATUS "Globally forcing _ITERATOR_DEBUG_LEVEL=0 for Debug. CMAKE_CXX_FLAGS_DEBUG: ${CMAKE_CXX_FLAGS_DEBUG}")
 
 endif()
 # --- End of block ---
@@ -64,7 +105,37 @@ FetchContent_Declare(
     GIT_TAG        v3.11.3 # Use a specific stable tag
 )
 
+# libcurl (Manual Download) - TEMPORARY WORKAROUND
+FetchContent_Declare(
+  curl
+  GIT_REPOSITORY https://github.com/curl/curl.git
+  GIT_TAG        curl-8_13_0 # Use the correct tag format
+  OVERRIDE_FIND_PACKAGE     # Recommended for consistent find_package behavior
+)
+
+FetchContent_MakeAvailable(curl)       # Builds curl with options set above
+
+# Temporarily disable /WX for Abseil build
+if(MSVC)
+  set(CMAKE_CXX_FLAGS_BEFORE_ABSEIL "${CMAKE_CXX_FLAGS}") # Store original flags
+  string(REPLACE "/WX" "" CMAKE_CXX_FLAGS_TEMP "${CMAKE_CXX_FLAGS}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_TEMP}" CACHE STRING "C++ Flags without /WX for Abseil" FORCE)
+  message(STATUS "Temporarily removing /WX for Abseil build. Flags: ${CMAKE_CXX_FLAGS}")
+endif()
+
 FetchContent_MakeAvailable(abseil-cpp)
+
+# Restore original flags after Abseil
+if(MSVC)
+  # Use the flags we stored before, ensuring /WX is present
+  if(CMAKE_CXX_FLAGS_BEFORE_ABSEIL MATCHES "/WX")
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_BEFORE_ABSEIL}" CACHE STRING "Restored C++ Flags with /WX" FORCE)
+  else()
+     # If /WX wasn't there originally (unlikely given our setup, but be safe), add it back
+     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_BEFORE_ABSEIL} /WX" CACHE STRING "Restored C++ Flags with /WX" FORCE)
+  endif()
+  message(STATUS "Restoring /WX after Abseil build. Flags: ${CMAKE_CXX_FLAGS}")
+endif()
 
 # --- Make GTest Available AFTER Abseil --- 
 # (In case GTest has potential dependency or configuration interactions)
@@ -83,43 +154,17 @@ set(CEF_VERSION "135.0.21+gd008a99+chromium-135.0.7049.96") # Example version
 set(CEF_PLATFORM "windows64")
 
 # Override the default CEF runtime library setting to match our project (/MD or /MDd)
-set(CEF_RUNTIME_LIBRARY_FLAG "$<$<CONFIG:Debug>:/MDd;/MD>" CACHE STRING "Specify CEF runtime library flag (Debug: /MDd, Release: /MD)" FORCE)
+# set(CEF_RUNTIME_LIBRARY_FLAG "$<$<CONFIG:Debug>:/MDd;/MD>" CACHE STRING "Specify CEF runtime library flag (Debug: /MDd, Release: /MD)" FORCE)
 
 FetchContent_Declare(
     cef_binary
     URL "https://cef-builds.spotifycdn.com/cef_binary_${CEF_VERSION}_${CEF_PLATFORM}.tar.bz2"
     URL_HASH SHA256=af85614db3460aa497acf2124581ede227a013c00c62b61ccb2367644230e4e6 # HASH FOR VERSION 135.0.21 windows64
-    CMAKE_ARGS
-        # Use CEF's intended mechanism for runtime flags
-        "-DCEF_RUNTIME_LIBRARY_FLAG=${CEF_RUNTIME_LIBRARY_FLAG}"
-        # Override CEF's internal debug definitions list to add iterator debugging
-        "-DCEF_COMPILER_DEFINES_DEBUG=_DEBUG;_ITERATOR_DEBUG_LEVEL=2"
 )
 
-# Explicitly tell FetchContent that the source directory is already populated (manual download)
-# and it should skip download/update/patch steps, using the existing files.
-set(FETCHCONTENT_FULLY_POPULATED TRUE)
-
-# --- Make CEF available via FetchContent ---
-# This will download/unpack CEF if needed and process its top-level CMakeLists.txt.
+# Disable the sandbox BEFORE making CEF available
+set(USE_SANDBOX OFF CACHE BOOL "Disable CEF sandbox" FORCE)
 FetchContent_MakeAvailable(cef_binary)
-
-# --- Explicitly find the CEF package within the fetched directory ---
-# Set CEF_ROOT, which FindCEF.cmake uses to locate the distribution.
-set(CEF_ROOT ${cef_binary_SOURCE_DIR} CACHE PATH "Path to CEF distribution root")
-# Add the CEF cmake module directory to the module search path
-list(APPEND CMAKE_MODULE_PATH "${cef_binary_SOURCE_DIR}/cmake")
-
-# --- Configure CEF ---
-# REMOVED: Explicit setting of CEF_RUNTIME_LIBRARY_FLAG.
-# CMAKE_MSVC_RUNTIME_LIBRARY (set earlier) and CMP0091 (set earlier)
-# should handle the runtime library setting correctly for all targets,
-# including those brought in by CEF.
-
-# REMOVED: find_package(CEF REQUIRED MODULE). Relying on targets from FetchContent_MakeAvailable.
-
-# --- Build libcef_dll_wrapper from source ---
-# REMOVED: Explicit add_subdirectory call. FetchContent_MakeAvailable already handles building it.
 
 # Ensure libcef_dll_wrapper uses the same runtime as the main project
 # Setting CMAKE_MSVC_RUNTIME_LIBRARY before find_package should handle this via CMP0091.
@@ -139,7 +184,7 @@ add_executable(GameLauncher WIN32
     # in subdirectories and linked via target_link_libraries below.
 )
 
-# Copy the UI directory to the output directory after build
+# Custom command to copy UI resources
 add_custom_command(
     TARGET GameLauncher POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
@@ -149,17 +194,28 @@ add_custom_command(
     VERBATIM
 )
 
+# Custom command to copy resource files (manifests, etc.)
+add_custom_command(
+    TARGET GameLauncher POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+        "${CMAKE_SOURCE_DIR}/resources"
+        "$<TARGET_FILE_DIR:GameLauncher>/resources"
+    COMMENT "Copying resource files"
+    VERBATIM
+)
+
 # Define necessary preprocessor symbols for Windows Unicode support
 target_compile_definitions(GameLauncher PRIVATE UNICODE _UNICODE)
 
 # --- Link Libraries ---
 # Link against common libraries for all platforms
 target_link_libraries(GameLauncher PRIVATE
-    cef_integration             # Our CEF integration layer
-    core                        # Core logic (includes IIPCService impl)
+    cef_integration             # Our CEF integration layer (which links core PUBLICLY)
     libcef_dll_wrapper        # Use target built by FetchContent_MakeAvailable
     libcef                    # Use target built by FetchContent_MakeAvailable
-    # absl::base  # REMOVED: Let 'core' link its specific Abseil dependencies
+    absl::status              # Explicit link for core's public interface dependency
+    absl::statusor            # Explicit link for core's public interface dependency
+    # curl::libcurl             # REMOVED: Linked privately by core
 )
 
 target_include_directories(GameLauncher PUBLIC
@@ -189,7 +245,7 @@ if(WIN32)
     # Adjust paths based on your CEF binary distribution structure
     set(CEF_RESOURCES_DIR "${PROJECT_SOURCE_DIR}/.dependencies/cef_binary-src/Release") # Adjust if using Debug CEF build
     set(CEF_RESOURCES_DATA_DIR "${PROJECT_SOURCE_DIR}/.dependencies/cef_binary-src/Resources")
-    set(CEF_LOCALES_DIR "${PROJECT_SOURCE_DIR}/.dependencies/cef_binary-src/Resources/locales")
+    set(CEF_LOCALES_DIR "${cef_binary_SOURCE_DIR}/Resources/locales")
 
     # Resources needed for basic operation
     set(CEF_ESSENTIAL_RESOURCES
@@ -201,26 +257,43 @@ if(WIN32)
         "${cef_binary_SOURCE_DIR}/Release/vk_swiftshader.dll"
         "${cef_binary_SOURCE_DIR}/Release/vk_swiftshader_icd.json"
         "${cef_binary_SOURCE_DIR}/Release/vulkan-1.dll"
-        "${cef_binary_SOURCE_DIR}/Release/v8_context_snapshot.bin"
         "${cef_binary_SOURCE_DIR}/Resources/chrome_100_percent.pak"
         "${cef_binary_SOURCE_DIR}/Resources/chrome_200_percent.pak"
         "${cef_binary_SOURCE_DIR}/Resources/icudtl.dat"
         "${cef_binary_SOURCE_DIR}/Resources/resources.pak"
+        "${cef_binary_SOURCE_DIR}/Release/v8_context_snapshot.bin" # Moved from Resources to Release
     )
 
-    # Add a post-build command to copy resources
+    message(STATUS "CEF Source Directory (cef_binary_SOURCE_DIR): ${cef_binary_SOURCE_DIR}")
+
+    # Use a custom command to copy resources as cef_distribute_resources is problematic
     add_custom_command(
         TARGET GameLauncher POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CEF_ESSENTIAL_RESOURCES} # Pass the full list
-            "$<TARGET_FILE_DIR:GameLauncher>" # Ensure destination is quoted
+        # Copy essential files individually using copy_if_different
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Release/chrome_elf.dll"              "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Release/d3dcompiler_47.dll"         "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Release/libcef.dll"                 "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Release/libEGL.dll"                 "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Release/libGLESv2.dll"              "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Release/vk_swiftshader.dll"         "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Release/vk_swiftshader_icd.json"    "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Release/vulkan-1.dll"               "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Resources/chrome_100_percent.pak" "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Resources/chrome_200_percent.pak" "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Resources/icudtl.dat"             "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Resources/resources.pak"          "$<TARGET_FILE_DIR:GameLauncher>"
+        # snapshot_blob.bin IS MISSING from this CEF distribution (${cef_binary_SOURCE_DIR}/Resources AND /Release). Build will succeed, but may cause runtime V8 errors.
+        # COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Resources/snapshot_blob.bin"      "$<TARGET_FILE_DIR:GameLauncher>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${cef_binary_SOURCE_DIR}/Release/v8_context_snapshot.bin"  "$<TARGET_FILE_DIR:GameLauncher>" # Moved from Resources to Release
+        # Copy locales directory
         COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
             "${cef_binary_SOURCE_DIR}/Resources/locales"
             "$<TARGET_FILE_DIR:GameLauncher>/locales" # Ensure destination is quoted
-        COMMENT "Copying CEF resources"
+        COMMENT "Copying CEF resources (manual, individual files, snapshot_blob.bin missing)"
         VERBATIM
     )
-endif()
+
+endif() # End of WIN32 specific settings
 
 # === Installation (Optional) ===
 # install(TARGETS GameLauncher DESTINATION bin)
