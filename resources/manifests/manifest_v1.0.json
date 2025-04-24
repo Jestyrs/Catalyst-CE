@@ -1,0 +1,24 @@
+{
+  "manifestVersion": "1.0",
+  "gameVersion": "1.0.0",
+  "files": [
+    {
+      "path": "GameLauncherSim.exe",
+      "size": 5242880, 
+      "hash": "sha256_game_launcher_v1",
+      "downloadUrl": "https://cdn.example.com/game/1.0.0/GameLauncherSim.exe"
+    },
+    {
+      "path": "data/assets.pak",
+      "size": 52428800,
+      "hash": "sha256_assets_v1",
+      "downloadUrl": "https://cdn.example.com/game/1.0.0/data/assets.pak"
+    },
+    {
+      "path": "config.ini",
+      "size": 1024,
+      "hash": "sha256_config_v1",
+      "downloadUrl": "https://cdn.example.com/game/1.0.0/config.ini"
+    }
+  ]
+}

@@ -64,3 +64,18 @@ Thumbs.db
 *.swp
 *.swo
 *.bak
+
+# --- Additions ---
+
+# Dependencies (FetchContent)
+.dependencies/
+
+# IDE specific (Visual Studio)
+.vs/
+
+# Node.js / UI build artifacts
+node_modules/
+ui/node_modules/
+ui/dist/
+
+# --- End Additions ---

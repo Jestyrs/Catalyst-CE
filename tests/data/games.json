@@ -1,0 +1,39 @@
+{
+  "games": [
+    {
+      "id": "game_zero",
+      "name": "Zero Wing",
+      "install_path": "C:/Games/ZeroWing",
+      "executable_path": "ZeroWing.exe",
+      "version": "1.0"
+    },
+    {
+      "id": "game_alpha",
+      "name": "Alpha Centauri",
+      "install_path": "C:/Program Files/Firaxis Games/Sid Meier's Alpha Centauri",
+      "executable_path": "terran.exe",
+      "version": "4.0"
+    },
+    {
+      "id": "game_bad_exe",
+      "name": "Non Existent Game",
+      "install_path": "C:/Games/DoesNotExist",
+      "executable_path": "path/to/nothing/here.exe",
+      "version": "0.1"
+    },
+    {
+      "id": "sys_calc",
+      "name": "Calculator",
+      "install_path": "C:/Windows/System32",
+      "executable_path": "calc.exe",
+      "version": "OS"
+    },
+    {
+      "id": "sys_notepad",
+      "name": "Notepad",
+      "install_path": "C:/Windows/System32",
+      "executable_path": "notepad.exe",
+      "version": "OS"
+    }
+  ]
+}

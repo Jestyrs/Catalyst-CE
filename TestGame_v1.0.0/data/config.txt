@@ -1,0 +1,3 @@
+TestGame Configuration v1.0.0
+SettingA=true
+SettingB=123

@@ -21,7 +21,6 @@ set(CMAKE_CXX_EXTENSIONS OFF) # Ensure standard conformance, disable GNU extensi
 set(CORE_SOURCES
     src/user_settings.cpp
     src/core_ipc_service.cpp            # Added from game_launcher_core
-    src/game_management.cpp             # Added from game_launcher_core
     src/json_user_settings.cpp
     src/background_task_manager.cpp
     src/authentication_manager.cpp # Add the new source file
@@ -29,6 +28,8 @@ set(CORE_SOURCES
     src/basic_ipc_service.cpp
     src/manifest_parser.cpp             # Added for manifest parsing
     src/network_utils.cpp             # Added for downloading files
+    src/user_profile.cpp # Add the new source file
+    src/app_settings.cpp # Added now
     # Add other core source files here
 )
 
@@ -41,25 +42,9 @@ add_library(core STATIC ${CORE_SOURCES})
 target_include_directories(core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include> # Include dir within core
     $<INSTALL_INTERFACE:include> # Where headers are installed
-    include/game_launcher/core
     PRIVATE
-    ${cef_binary_SOURCE_DIR}          # For internal CEF includes like include/base/cef_build.h
-    ${cef_binary_SOURCE_DIR}/include  # For direct includes like base/cef_logging.h
-    # No private includes needed for now
-)
-
-# Disable specific warnings treated as errors (/WX)
-# C4127: conditional expression is constant (common in templates/macros)
-# C4100: unreferenced formal parameter
-# C4101: unreferenced local variable
-target_compile_options(core PRIVATE
-    # MSVC specific flags to disable warnings
-    $<$<CXX_COMPILER_ID:MSVC>:/wd4127 /wd4100 /wd4101>
-)
-
-# Add necessary compile definitions
-target_compile_definitions(core PRIVATE
-    USING_CEF_SHARED # Commonly required when using CEF shared library/wrapper
+    ${cef_binary_SOURCE_DIR} # Add CEF root include directory
+    ${picosha2_SOURCE_DIR}   # Added: Include dir for picosha2.h
 )
 
 # Link dependencies
@@ -68,15 +53,31 @@ target_link_libraries(core
     # Public dependencies (needed by headers)
     absl::status
     absl::statusor
-    nlohmann_json::nlohmann_json
-    CURL::libcurl             # Link against libcurl for network_utils - Now public
+    absl::flat_hash_map         # Moved from PRIVATE
     PRIVATE
-    libcef_dll_wrapper          # Link against the CEF wrapper library
     # Implementation dependencies (only needed by core source files)
     absl::base                  # Fundamental Abseil utilities
+    absl::cleanup               # Added - For absl::MakeCleanup
+    absl::log                   # Added - For LOG macros
     absl::strings               # For StrCat etc.
     absl::synchronization       # Used by CoreIPCService (threads/mutexes)
-    absl::flat_hash_map         # For hash map/set implementations
+    nlohmann_json::nlohmann_json # Moved from PUBLIC
+    CURL::libcurl                # Moved from PUBLIC
+    libcef_dll_wrapper # Link against CEF wrapper for logging utils
 )
 
 message(STATUS "Configuring core library target")
+
+# Add /WX only to this target
+target_compile_options(core PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/WX>)
+
+# Suppress specific warnings from included third-party headers (like Abseil)
+# that would otherwise cause errors due to /WX being enabled for 'core'.
+target_compile_options(core PRIVATE $<$<CXX_COMPILER_ID:MSVC>:/wd4127 /wd4100>)
+
+# Disable specific MSVC warnings if necessary
+if(MSVC)
+    target_compile_options(core PRIVATE /W4 /WX)
+    # Disable padding warning often triggered by external libs like Abseil
+    target_compile_options(core PRIVATE /wd4324)
+endif()

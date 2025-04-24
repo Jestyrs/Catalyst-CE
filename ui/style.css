@@ -1,0 +1,302 @@
+/* ui/style.css */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #282c34; /* Dark background */
+    color: #abb2bf; /* Light grey text */
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column; /* Stack elements vertically */
+    height: 100vh; /* Use height instead of min-height for full viewport */
+    overflow: hidden; /* Prevent body scrollbars */
+}
+
+.app-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1; /* Take available space */
+    overflow: hidden; /* Prevent scrollbars on main container */
+}
+
+.top-bar {
+    display: flex;
+    justify-content: space-between; /* Pushes tabs left, settings right */
+    align-items: center;
+    background-color: #21252b;
+    padding: 0 15px; /* Padding left/right */
+    border-bottom: 1px solid #3e4451;
+    height: 50px; /* Fixed height for the top bar */
+    flex-shrink: 0; /* Prevent shrinking */
+}
+
+.tabs {
+    display: flex;
+}
+
+.tab-button {
+    background-color: transparent;
+    border: none;
+    color: #abb2bf;
+    padding: 10px 15px;
+    cursor: pointer;
+    font-size: 16px;
+    border-bottom: 3px solid transparent; /* Placeholder for active state */
+    margin-right: 5px; /* Space between tabs */
+    transition: color 0.2s ease, border-bottom-color 0.2s ease;
+}
+
+.tab-button:hover {
+    color: #ffffff;
+}
+
+.tab-button.active {
+    color: #61afef; /* Blue accent for active tab */
+    border-bottom-color: #61afef;
+}
+
+.settings-icon button {
+    background: none;
+    border: none;
+    color: #abb2bf;
+    font-size: 24px; /* Larger icon */
+    cursor: pointer;
+    padding: 5px;
+}
+
+.settings-icon button:hover {
+    color: #ffffff;
+}
+
+.content-area {
+    display: flex;
+    flex: 1; /* Take remaining vertical space */
+    overflow: hidden; /* Prevent scrollbars here, manage within panels */
+}
+
+.left-panel {
+    width: 250px; /* Wider panel for game list */
+    background-color: #21252b;
+    padding: 15px;
+    border-right: 1px solid #3e4451;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto; /* Allow scrolling for game list */
+    flex-shrink: 0; /* Prevent shrinking */
+}
+
+.left-panel h2 {
+    color: #61afef; /* Blue accent */
+    margin-top: 0;
+    margin-bottom: 15px;
+    border-bottom: 1px solid #3e4451;
+    padding-bottom: 10px;
+    font-size: 18px;
+}
+
+.main-panel {
+    flex: 1; /* Takes remaining horizontal space */
+    display: flex;
+    flex-direction: column; /* Stack details and actions vertically */
+    padding: 20px;
+    overflow-y: auto; /* Allow scrolling for main content if needed */
+}
+
+#gameDetailsContainer {
+    flex: 1; /* Takes up most space in main panel */
+    margin-bottom: 20px; /* Space before action buttons */
+}
+
+#gameDetailsContainer h1 {
+    color: #98c379; /* Green accent */
+    margin-top: 0;
+    border-bottom: 1px solid #3e4451;
+    padding-bottom: 10px;
+}
+
+#gameActions {
+    display: flex;
+    align-items: center; /* Align button and progress bar */
+    padding-top: 15px;
+    border-top: 1px solid #3e4451;
+    flex-shrink: 0; /* Prevent shrinking */
+}
+
+#actionButton {
+    margin-right: 15px; /* Space between button and progress bar */
+}
+
+#progressBarContainer {
+    flex: 1; /* Allow progress bar to take remaining space */
+    display: flex; /* Use flex to align progress and text */
+    align-items: center;
+    background-color: #3e4451; /* Background for the container */
+    border-radius: 4px;
+    padding: 2px 5px; /* Padding inside the container */
+}
+
+#installProgress {
+    flex: 1; /* Progress bar takes available space */
+    height: 15px;
+    margin-right: 10px; /* Space between bar and text */
+    appearance: none; /* Override default appearance */
+    border: none;
+    border-radius: 3px;
+}
+
+/* Styling for the progress bar track (background) */
+#installProgress::-webkit-progress-bar {
+    background-color: #282c34; /* Dark background for track */
+    border-radius: 3px;
+}
+
+/* Styling for the progress bar value (the filled part) */
+#installProgress::-webkit-progress-value {
+    background-color: #98c379; /* Green accent for progress */
+    border-radius: 3px;
+    transition: width 0.1s linear;
+}
+
+/* Firefox specific */
+#installProgress::-moz-progress-bar {
+    background-color: #98c379; /* Green accent for progress */
+    border-radius: 3px;
+}
+
+#progressText {
+    color: #abb2bf;
+    font-size: 0.9em;
+    min-width: 35px; /* Ensure space for '100%' */
+    text-align: right;
+}
+
+/* Game List Container Styling */
+#gameListContainer {
+    /* margin-top: 20px; */ /* Removed top margin as it's inside left-panel */
+    border: none; /* Remove border */
+    padding: 0; /* Remove padding */
+    flex: 1; /* Allow list to take available space in left panel */
+    overflow-y: auto; /* Already handled by left-panel, but keep for clarity */
+}
+
+.game-entry {
+    padding: 10px 12px;
+    margin-bottom: 3px; /* Reduced margin */
+    border: 1px solid transparent; /* Use transparent border to prevent layout shift on hover/select */
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    color: #abb2bf; /* Ensure default text color */
+}
+
+.game-entry:hover {
+    background-color: #3e4451; /* Darker grey background on hover */
+    border-color: #4a5060;
+}
+
+.game-entry.selected {
+    background-color: #61afef; /* Blue background for selected item */
+    color: #21252b; /* Dark text for selected item */
+    border-color: #4a8cdb;
+}
+
+/* Footer Styles */
+.footer {
+    background-color: #21252b;
+    padding: 10px 20px;
+    text-align: right;
+    font-size: 0.8em;
+    border-top: 1px solid #3e4451;
+    color: #5c6370; /* Muted text color */
+}
+
+/* --- Settings Modal Styles --- */
+
+.modal {
+    display: none; /* Hidden by default */
+    position: fixed; /* Stay in place */
+    z-index: 1000; /* Sit on top */
+    left: 0;
+    top: 0;
+    width: 100%; /* Full width */
+    height: 100%; /* Full height */
+    overflow: auto; /* Enable scroll if needed */
+    background-color: rgba(0,0,0,0.6); /* Black w/ opacity (overlay) */
+    padding-top: 60px; /* Location of the box */
+}
+
+.modal-content {
+    background-color: #2c2c2c; /* Dark background for the modal */
+    margin: 5% auto; /* 5% from the top and centered */
+    padding: 25px;
+    border: 1px solid #888;
+    width: 80%; /* Could be more specific */
+    max-width: 500px; /* Maximum width */
+    border-radius: 8px;
+    box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2), 0 6px 20px 0 rgba(0,0,0,0.19);
+    color: #e0e0e0; /* Light text */
+}
+
+.modal-content h2, .modal-content h3 {
+    color: #ffffff; /* White headings */
+    margin-top: 0;
+}
+
+.modal-content label {
+    display: block;
+    margin-bottom: 5px;
+    color: #cccccc;
+}
+
+.modal-content input[type="text"] {
+    width: calc(100% - 22px); /* Adjust width considering padding */
+    padding: 10px;
+    margin-bottom: 15px;
+    border: 1px solid #555;
+    background-color: #333;
+    color: #e0e0e0;
+    border-radius: 4px;
+}
+
+.modal-content button {
+    background-color: #007bff;
+    color: white;
+    padding: 10px 15px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    float: right; /* Align save button to the right */
+}
+
+.modal-content button:hover {
+    background-color: #0056b3;
+}
+
+.close-button {
+    color: #aaa;
+    float: right;
+    font-size: 28px;
+    font-weight: bold;
+    line-height: 1; /* Adjust line height for better positioning */
+}
+
+.close-button:hover,
+.close-button:focus {
+    color: #fff; /* White on hover/focus */
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.settings-section {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #444; /* Separator line */
+}
+
+.settings-section:last-of-type {
+    border-bottom: none;
+}
+
+/* --- Utility Classes --- */
+.hidden {
+    display: none !important;
+}

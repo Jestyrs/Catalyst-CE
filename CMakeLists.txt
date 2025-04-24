@@ -1,40 +1,33 @@
 # CMakeLists.txt (Root)
 
-cmake_minimum_required(VERSION 3.20) # Increased version for FetchContent best practices
+cmake_minimum_required(VERSION 3.20) # Decreased version for compatibility
 
 project(GameLauncher VERSION 0.1.0 LANGUAGES CXX)
 
-# MSVC Specific: Set the runtime library BEFORE project()
+# --- MSVC Runtime Library --- #
 if(MSVC)
-  # CEF typically requires the dynamic runtime (/MD or /MDd)
-  # Set the CMAKE_MSVC_RUNTIME_LIBRARY variable to control this.
-  # MultiThreaded = /MT (Release Static)
-  # MultiThreadedDebug = /MTd (Debug Static)
-  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "MSVC Runtime Library" FORCE)
-  message(STATUS "MSVC Runtime Library set to: ${CMAKE_MSVC_RUNTIME_LIBRARY}")
-  # Add flags to treat warnings as errors and set Unicode character set
-  add_compile_options(
-      /W4       # Warning level 4
-      /WX       # Treat warnings as errors
-      /utf-8    # Use Unicode character set
-  )
-  # Force iterator debugging off for Debug builds globally to avoid conflicts with CEF
-  if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-      add_compile_definitions(_ITERATOR_DEBUG_LEVEL=0)
-      message(STATUS "MSVC Iterator Debug Level forced to 0 for Debug builds.")
-  endif()
+  # Force use of Dynamic Runtime Library (MDd for Debug, MD for Release)
+  # This prevents LNK2038 errors when linking different libs/executables
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+  message(STATUS "MSVC Runtime Library forced to: ${CMAKE_MSVC_RUNTIME_LIBRARY}")
 endif()
 
-# Set the MSVC runtime library consistently for all targets
-# Must be done BEFORE adding subdirectories or FetchContent that builds code
+# Set the C++ standard to C++20 (or C++17 if needed)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Define NOMINMAX globally to prevent Windows header conflicts (min/max macros)
+add_definitions(-DNOMINMAX)
+
+# --- Add Iterator Debug Flags for MSVC Debug --- #
 if(MSVC)
-  # Use the multi-threaded DLL runtime (/MD or /MDd)
-  # Use "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" for CMake >= 3.15
-  # set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "MSVC Runtime library" FORCE)
+  set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} /D_ITERATOR_DEBUG_LEVEL=0 /D_HAS_ITERATOR_DEBUGGING=0")
+  message(STATUS "Appended iterator debug flags to CMAKE_CXX_FLAGS_DEBUG: ${CMAKE_CXX_FLAGS_DEBUG}")
 endif()
 
-# Set the MSVC runtime library globally for consistency (/MDd or /MD)
-# set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL" CACHE STRING "MSVC Runtime Library" FORCE)
+# --- Disable Building Tests from Dependencies ---
+set(BUILD_TESTING OFF CACHE BOOL "Disable building tests from dependencies" FORCE)
 
 # --- FetchContent Configuration ---
 # Store downloaded sources outside the main build dir for persistence
@@ -58,28 +51,6 @@ set(ENABLE_LDAP OFF CACHE BOOL "Disable LDAP support" FORCE)
 set(ENABLE_LDAPS OFF CACHE BOOL "Disable LDAPS support" FORCE)
 # --- End early libcurl configuration ---
 # --- End libcurl configuration ---
-
-# Set C++ Standard FIRST
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF) # Prefer explicit standard features
-
-# Define NOMINMAX globally to prevent Windows header conflicts (min/max macros)
-add_definitions(-DNOMINMAX)
-
-# --- MSVC Runtime Library Enforcement ---
-if(MSVC)
-    # Ensure our project uses the same flags as CEF for things like exceptions/RTTI if needed
-    # add_compile_options(/EHsc) # Example: if CEF needs exceptions
-
-    # CMP0091: MSVC runtime library flags are selected by an abstraction.
-    cmake_policy(SET CMP0091 NEW)
-    # Use the Debug/Release DLL runtime (/MDd, /MD). Change if you require static runtime (/MTd, /MT).
-    # set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
-    message(STATUS "MSVC Runtime Library set to: ${CMAKE_MSVC_RUNTIME_LIBRARY}") # For verification
-
-endif()
-# --- End of block ---
 
 # --- Fetch Dependencies ---
 # Google Test
@@ -105,6 +76,13 @@ FetchContent_Declare(
     GIT_TAG        v3.11.3 # Use a specific stable tag
 )
 
+# picosha2 (for SHA256 hashing - header only)
+FetchContent_Declare(
+    picosha2
+    GIT_REPOSITORY https://github.com/okdshin/picosha2.git
+    GIT_TAG        v1.0.0 # Use tag suggested by user
+)
+
 # libcurl (Manual Download) - TEMPORARY WORKAROUND
 FetchContent_Declare(
   curl
@@ -114,28 +92,10 @@ FetchContent_Declare(
 )
 
 FetchContent_MakeAvailable(curl)       # Builds curl with options set above
-
-# Temporarily disable /WX for Abseil build
-if(MSVC)
-  set(CMAKE_CXX_FLAGS_BEFORE_ABSEIL "${CMAKE_CXX_FLAGS}") # Store original flags
-  string(REPLACE "/WX" "" CMAKE_CXX_FLAGS_TEMP "${CMAKE_CXX_FLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_TEMP}" CACHE STRING "C++ Flags without /WX for Abseil" FORCE)
-  message(STATUS "Temporarily removing /WX for Abseil build. Flags: ${CMAKE_CXX_FLAGS}")
-endif()
+find_package(CURL REQUIRED)          # Ensure targets like curl::libcurl are imported
 
 FetchContent_MakeAvailable(abseil-cpp)
-
-# Restore original flags after Abseil
-if(MSVC)
-  # Use the flags we stored before, ensuring /WX is present
-  if(CMAKE_CXX_FLAGS_BEFORE_ABSEIL MATCHES "/WX")
-     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_BEFORE_ABSEIL}" CACHE STRING "Restored C++ Flags with /WX" FORCE)
-  else()
-     # If /WX wasn't there originally (unlikely given our setup, but be safe), add it back
-     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_BEFORE_ABSEIL} /WX" CACHE STRING "Restored C++ Flags with /WX" FORCE)
-  endif()
-  message(STATUS "Restoring /WX after Abseil build. Flags: ${CMAKE_CXX_FLAGS}")
-endif()
+FetchContent_MakeAvailable(picosha2)   # Download/populate picosha2
 
 # --- Make GTest Available AFTER Abseil --- 
 # (In case GTest has potential dependency or configuration interactions)
@@ -144,30 +104,65 @@ FetchContent_MakeAvailable(googletest)
 # --- Make nlohmann/json Available --- 
 FetchContent_MakeAvailable(nlohmann_json)
 
-# Enable testing with CTest
-enable_testing()
-include(CTest)
+# Define CEF Version and Platform FIRST
+set(CEF_VERSION "135.0.21+gd008a99+chromium-135.0.7049.96" CACHE STRING "CEF Version to download") # Example version
+set(CEF_PLATFORM "windows64" CACHE STRING "CEF Platform (e.g., windows64, linux64, macos64, macosarm64)")
+message(STATUS "Using CEF Version: ${CEF_VERSION} for Platform: ${CEF_PLATFORM}")
 
-# --- CEF Dependency --- 
-# Define CEF version and platform
-set(CEF_VERSION "135.0.21+gd008a99+chromium-135.0.7049.96") # Example version
-set(CEF_PLATFORM "windows64")
-
-# Override the default CEF runtime library setting to match our project (/MD or /MDd)
-# set(CEF_RUNTIME_LIBRARY_FLAG "$<$<CONFIG:Debug>:/MDd;/MD>" CACHE STRING "Specify CEF runtime library flag (Debug: /MDd, Release: /MD)" FORCE)
-
+# Chromium Embedded Framework (CEF)
 FetchContent_Declare(
     cef_binary
     URL "https://cef-builds.spotifycdn.com/cef_binary_${CEF_VERSION}_${CEF_PLATFORM}.tar.bz2"
-    URL_HASH SHA256=af85614db3460aa497acf2124581ede227a013c00c62b61ccb2367644230e4e6 # HASH FOR VERSION 135.0.21 windows64
+    # Example HASH for 118.6.6+g138057a+chromium-118.0.5993.90 windows64
+    # URL_HASH SHA256=YOUR_SHA256_HASH_HERE # <-- IMPORTANT: Add the correct SHA256 hash for the chosen version/platform
+    # Example HASH for 135.0.21+gd008a99+chromium-135.0.7049.96 windows64
+    URL_HASH SHA256=af85614db3460aa497acf2124581ede227a013c00c62b61ccb2367644230e4e6
 )
+
+# Set CEF flags BEFORE making it available
+# Force CEF to build libcef_dll_wrapper with the dynamic runtime (/MD or /MDd)
+# Use generator expression to handle Debug (/MDd) and Release (/MD) automatically
+set(CEF_RUNTIME_LIBRARY_FLAG "/MD$<$<CONFIG:Debug>:d>" CACHE STRING "Force CEF wrapper runtime library (/MDd or /MD)" FORCE)
+message(STATUS "Setting CEF_RUNTIME_LIBRARY_FLAG to ${CEF_RUNTIME_LIBRARY_FLAG} (evaluated: /MD$<$<CONFIG:Debug>:d>)")
+
+FetchContent_MakeAvailable(cef_binary)
+
+# Explicitly exclude CEF tests/example targets to avoid runtime library conflicts
+set_target_properties(ceftests PROPERTIES EXCLUDE_FROM_ALL TRUE)
+set_target_properties(cefsimple PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # Disable the sandbox BEFORE making CEF available
 set(USE_SANDBOX OFF CACHE BOOL "Disable CEF sandbox" FORCE)
-FetchContent_MakeAvailable(cef_binary)
 
 # Ensure libcef_dll_wrapper uses the same runtime as the main project
 # Setting CMAKE_MSVC_RUNTIME_LIBRARY before find_package should handle this via CMP0091.
+
+# === Find Node/NPM ===
+find_program(NODEJS_EXECUTABLE NAMES node nodejs)
+find_program(NPM_EXECUTABLE NAMES npm)
+
+if(NOT NODEJS_EXECUTABLE OR NOT NPM_EXECUTABLE)
+    message(FATAL_ERROR "NodeJS and/or NPM not found. Please install NodeJS (which includes NPM) and ensure it's in your PATH.")
+else()
+    message(STATUS "Found NodeJS: ${NODEJS_EXECUTABLE}")
+    message(STATUS "Found NPM: ${NPM_EXECUTABLE}")
+endif()
+
+# === Custom Target for Building UI ===
+if(NPM_EXECUTABLE)
+    add_custom_target(BuildUI ALL
+        COMMAND ${NPM_EXECUTABLE} install  # Run npm install first
+        COMMAND ${NPM_EXECUTABLE} run build # Then run the build script
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/ui
+        COMMENT "Building UI assets (npm install && npm run build)"
+        VERBATIM
+    )
+else()
+    # Create a dummy target if npm isn't found, build will likely fail later but avoids CMake error here
+    add_custom_target(BuildUI ALL
+        COMMENT "Skipping UI build: NPM not found."
+    )
+endif()
 
 # --- Project Structure ---
 # Add subdirectories containing their own CMakeLists.txt files
@@ -184,19 +179,25 @@ add_executable(GameLauncher WIN32
     # in subdirectories and linked via target_link_libraries below.
 )
 
-# Custom command to copy UI resources
+# Ensure GameLauncher depends on the UI build completing first
+add_dependencies(GameLauncher BuildUI)
+
+# Custom command to copy BUILT UI resources (dist folder)
+# Ensure the target directory exists before copying
 add_custom_command(
     TARGET GameLauncher POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:GameLauncher>/ui/dist"
     COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
-        "${CMAKE_SOURCE_DIR}/ui"
-        "$<TARGET_FILE_DIR:GameLauncher>/ui"
-    COMMENT "Copying UI resources"
+        "${CMAKE_SOURCE_DIR}/ui/dist" # <<< Copy the BUILT 'dist' directory
+        "$<TARGET_FILE_DIR:GameLauncher>/ui/dist" # <<< To the 'dist' subdirectory in the target
+    COMMENT "Copying built UI resources (ui/dist)"
     VERBATIM
 )
 
 # Custom command to copy resource files (manifests, etc.)
 add_custom_command(
     TARGET GameLauncher POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:GameLauncher>/resources" # Create destination first
     COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
         "${CMAKE_SOURCE_DIR}/resources"
         "$<TARGET_FILE_DIR:GameLauncher>/resources"
@@ -204,6 +205,8 @@ add_custom_command(
     VERBATIM
 )
 
+# --- CEF Resource Copying (specific files/dirs) ---
+# CEF requires specific resources alongside the executable.
 # Define necessary preprocessor symbols for Windows Unicode support
 target_compile_definitions(GameLauncher PRIVATE UNICODE _UNICODE)
 
@@ -213,14 +216,31 @@ target_link_libraries(GameLauncher PRIVATE
     cef_integration             # Our CEF integration layer (which links core PUBLICLY)
     libcef_dll_wrapper        # Use target built by FetchContent_MakeAvailable
     libcef                    # Use target built by FetchContent_MakeAvailable
+    nlohmann_json::nlohmann_json # Link nlohmann json for headers included by GameLauncher
+    CURL::libcurl             # Link curl for headers included by GameLauncher (Corrected case)
     absl::status              # Explicit link for core's public interface dependency
     absl::statusor            # Explicit link for core's public interface dependency
-    # curl::libcurl             # REMOVED: Linked privately by core
+    # Windows specific libraries
+    Shell32.lib               # Needed for SHGetKnownFolderPath
 )
+
+target_compile_options(GameLauncher PRIVATE 
+    $<$<CXX_COMPILER_ID:MSVC>:/WX>          # Treat warnings as errors
+    $<$<CXX_COMPILER_ID:MSVC>:/wd4100>     # C4100: unreferenced formal parameter
+    $<$<CXX_COMPILER_ID:MSVC>:/wd4127>     # C4127: conditional expression is constant
+)
+
+# Suppress specific warnings from third-party headers for specific targets
+# Core target (Abseil warnings)
+# target_compile_options(core PRIVATE
+#     $<$<CXX_COMPILER_ID:MSVC>:/wd4127> # C4127: conditional expression is constant
+# )
+# GameLauncher target (CEF warnings)
 
 target_include_directories(GameLauncher PUBLIC
     ${PROJECT_SOURCE_DIR}      # Add project root for includes like "cef_integration/..."
     ${cef_binary_SOURCE_DIR}  # Root directory containing cef_app.h, etc.
+    ${CURL_INCLUDE_DIRS}     # Add curl include directories
 )
 
 target_link_directories(GameLauncher PRIVATE
@@ -232,7 +252,6 @@ target_link_directories(GameLauncher PRIVATE
 if(WIN32)
     target_link_libraries(GameLauncher PRIVATE
         User32.lib  # Often needed for basic windowing/message loop
-        Shell32.lib # May be needed depending on CEF features used
         Ole32.lib
         Gdi32.lib
         Advapi32.lib

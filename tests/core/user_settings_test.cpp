@@ -2,9 +2,12 @@
 
 #include "game_launcher/core/user_settings.h"
 #include "game_launcher/core/json_user_settings.h"    // For JsonUserSettings
-#include <gtest/gtest.h>
+#include "gtest/gtest.h"
 #include <filesystem>
+#include <fstream> // Needed for std::ofstream
 #include <memory> // For std::unique_ptr
+#include <absl/status/status.h> // For status checks
+#include <absl/status/statusor.h> // For status checks
 
 using namespace game_launcher::core;
 
@@ -16,7 +19,7 @@ protected:
     void SetUp() override {
         auto factory = GetParam();
         settings_ = factory(); // Create instance using factory
-        ASSERT_TRUE(settings_->LoadSettings());
+        ASSERT_TRUE(settings_->LoadSettings().ok());
     }
 };
 
@@ -27,17 +30,20 @@ TEST_P(SettingsTest, StringLifecycle) {
     const std::string value2 = "value2";
 
     // Initial state
-    EXPECT_FALSE(settings_->GetString(key).has_value());
+    absl::StatusOr<std::string> initial_value = settings_->GetString(key);
+    EXPECT_FALSE(initial_value.ok());
 
     // Set value
-    settings_->SetString(key, value1);
-    ASSERT_TRUE(settings_->GetString(key).has_value());
-    EXPECT_EQ(settings_->GetString(key).value(), value1);
+    EXPECT_TRUE(settings_->SetString(key, value1).ok());
+    absl::StatusOr<std::string> value_status = settings_->GetString(key);
+    ASSERT_TRUE(value_status.ok()) << value_status.status();
+    EXPECT_EQ(value_status.value(), value1);
 
     // Overwrite value
-    settings_->SetString(key, value2);
-    ASSERT_TRUE(settings_->GetString(key).has_value());
-    EXPECT_EQ(settings_->GetString(key).value(), value2);
+    EXPECT_TRUE(settings_->SetString(key, value2).ok());
+    value_status = settings_->GetString(key);
+    ASSERT_TRUE(value_status.ok()) << value_status.status();
+    EXPECT_EQ(value_status.value(), value2);
 
     // Check type mismatch (optional, depends on desired strictness)
     // settings_->SetInt(key, 100); // Set as different type
@@ -49,27 +55,33 @@ TEST_P(SettingsTest, IntLifecycle) {
     const int value1 = 42;
     const int value2 = -100;
 
-    EXPECT_FALSE(settings_->GetInt(key).has_value());
-    settings_->SetInt(key, value1);
-    ASSERT_TRUE(settings_->GetInt(key).has_value());
-    EXPECT_EQ(settings_->GetInt(key).value(), value1);
+    absl::StatusOr<int> initial_value = settings_->GetInt(key);
+    EXPECT_FALSE(initial_value.ok());
+    EXPECT_TRUE(settings_->SetInt(key, value1).ok());
+    absl::StatusOr<int> value_status = settings_->GetInt(key);
+    ASSERT_TRUE(value_status.ok()) << value_status.status();
+    EXPECT_EQ(value_status.value(), value1);
 
-    settings_->SetInt(key, value2);
-    ASSERT_TRUE(settings_->GetInt(key).has_value());
-    EXPECT_EQ(settings_->GetInt(key).value(), value2);
+    EXPECT_TRUE(settings_->SetInt(key, value2).ok());
+    value_status = settings_->GetInt(key);
+    ASSERT_TRUE(value_status.ok()) << value_status.status();
+    EXPECT_EQ(value_status.value(), value2);
 }
 
 TEST_P(SettingsTest, BoolLifecycle) {
     const std::string key = "bool_key";
 
-    EXPECT_FALSE(settings_->GetBool(key).has_value());
-    settings_->SetBool(key, true);
-    ASSERT_TRUE(settings_->GetBool(key).has_value());
-    EXPECT_TRUE(settings_->GetBool(key).value());
+    absl::StatusOr<bool> initial_value = settings_->GetBool(key);
+    EXPECT_FALSE(initial_value.ok());
+    EXPECT_TRUE(settings_->SetBool(key, true).ok());
+    absl::StatusOr<bool> value_status = settings_->GetBool(key);
+    ASSERT_TRUE(value_status.ok()) << value_status.status();
+    EXPECT_TRUE(value_status.value());
 
-    settings_->SetBool(key, false);
-    ASSERT_TRUE(settings_->GetBool(key).has_value());
-    EXPECT_FALSE(settings_->GetBool(key).value());
+    EXPECT_TRUE(settings_->SetBool(key, false).ok());
+    value_status = settings_->GetBool(key);
+    ASSERT_TRUE(value_status.ok()) << value_status.status();
+    EXPECT_FALSE(value_status.value());
 }
 
 // --- Instantiating the tests for InMemoryUserSettings ---
@@ -110,21 +122,23 @@ TEST_F(JsonSettingsTest, FileCreationAndPersistence) {
     {
         JsonUserSettings settings(temp_file_);
         // Load should create the file if it doesn't exist
-        EXPECT_TRUE(settings.LoadSettings());
+        EXPECT_TRUE(settings.LoadSettings().ok());
         EXPECT_TRUE(std::filesystem::exists(temp_file_));
 
-        settings.SetString("persistent_key", "persistent_value");
-        settings.SetInt("persistent_int", 999);
-        EXPECT_TRUE(settings.SaveSettings()); // Explicit save
+        EXPECT_TRUE(settings.SetString("persistent_key", "persistent_value").ok());
+        EXPECT_TRUE(settings.SetInt("persistent_int", 999).ok());
+        EXPECT_TRUE(settings.SaveSettings().ok()); // Explicit save
     }
 
     // Create a new instance to load the saved data
     JsonUserSettings loaded_settings(temp_file_);
-    EXPECT_TRUE(loaded_settings.LoadSettings());
-    ASSERT_TRUE(loaded_settings.GetString("persistent_key").has_value());
-    EXPECT_EQ(loaded_settings.GetString("persistent_key").value(), "persistent_value");
-    ASSERT_TRUE(loaded_settings.GetInt("persistent_int").has_value());
-    EXPECT_EQ(loaded_settings.GetInt("persistent_int").value(), 999);
+    EXPECT_TRUE(loaded_settings.LoadSettings().ok());
+    absl::StatusOr<std::string> loaded_value = loaded_settings.GetString("persistent_key");
+    ASSERT_TRUE(loaded_value.ok()) << loaded_value.status();
+    EXPECT_EQ(loaded_value.value(), "persistent_value");
+    absl::StatusOr<int> loaded_int = loaded_settings.GetInt("persistent_int");
+    ASSERT_TRUE(loaded_int.ok()) << loaded_int.status();
+    EXPECT_EQ(loaded_int.value(), 999);
 }
 
 TEST_F(JsonSettingsTest, LoadInvalidJsonResets) {
@@ -136,16 +150,82 @@ TEST_F(JsonSettingsTest, LoadInvalidJsonResets) {
 
     JsonUserSettings settings(temp_file_);
     // Load should fail but reset to an empty state
-    EXPECT_FALSE(settings.LoadSettings()); 
-    settings.SetString("after_reset", "should_work");
-    EXPECT_TRUE(settings.GetString("after_reset").has_value());
+    EXPECT_FALSE(settings.LoadSettings().ok()); 
+    EXPECT_TRUE(settings.SetString("after_reset", "should_work").ok());
+    absl::StatusOr<std::string> after_reset_value = settings.GetString("after_reset");
+    EXPECT_TRUE(after_reset_value.ok()) << after_reset_value.status();
     // Saving should now write a valid empty or corrected file
-    EXPECT_TRUE(settings.SaveSettings());
+    EXPECT_TRUE(settings.SaveSettings().ok());
 
     // Verify the saved file is now valid (contains "after_reset")
      JsonUserSettings reloaded_settings(temp_file_);
-     EXPECT_TRUE(reloaded_settings.LoadSettings());
-     EXPECT_EQ(reloaded_settings.GetString("after_reset").value(), "should_work");
+     EXPECT_TRUE(reloaded_settings.LoadSettings().ok());
+     absl::StatusOr<std::string> reloaded_value = reloaded_settings.GetString("after_reset");
+     EXPECT_TRUE(reloaded_value.ok()) << reloaded_value.status();
+     EXPECT_EQ(reloaded_value.value(), "should_work");
+}
+
+TEST_F(JsonSettingsTest, HasKeyCheck) {
+    {
+        JsonUserSettings settings(temp_file_);
+        EXPECT_TRUE(settings.SetString("key_exists", "value_exists").ok());
+        EXPECT_TRUE(settings.SaveSettings().ok());
+    }
+
+    JsonUserSettings loaded_settings(temp_file_);
+    EXPECT_TRUE(loaded_settings.LoadSettings().ok());
+    EXPECT_TRUE(loaded_settings.HasKey("key_exists"));
+    EXPECT_FALSE(loaded_settings.HasKey("key_does_not_exist"));
+}
+
+TEST_F(JsonSettingsTest, RemoveKeyPersistence) {
+    {
+        JsonUserSettings settings(temp_file_);
+        EXPECT_TRUE(settings.SetString("key_to_keep", "value1").ok());
+        EXPECT_TRUE(settings.SetInt("key_to_remove", 123).ok());
+        EXPECT_TRUE(settings.SaveSettings().ok());
+    }
+
+    {
+        JsonUserSettings settings_reloaded(temp_file_);
+        EXPECT_TRUE(settings_reloaded.LoadSettings().ok());
+        EXPECT_TRUE(settings_reloaded.HasKey("key_to_remove")); // Verify it exists before removal
+        EXPECT_TRUE(settings_reloaded.RemoveKey("key_to_remove").ok());
+        EXPECT_TRUE(settings_reloaded.RemoveKey("key_does_not_exist").ok()); // Removing non-existent should be OK
+        EXPECT_TRUE(settings_reloaded.SaveSettings().ok()); // Save after removal
+    }
+
+    JsonUserSettings final_settings(temp_file_);
+    EXPECT_TRUE(final_settings.LoadSettings().ok());
+    EXPECT_TRUE(final_settings.HasKey("key_to_keep"));
+    EXPECT_FALSE(final_settings.HasKey("key_to_remove"));
+    absl::StatusOr<int> removed_value = final_settings.GetInt("key_to_remove");
+    EXPECT_FALSE(removed_value.ok());
+}
+
+TEST_F(JsonSettingsTest, ClearPersistence) {
+    {
+        JsonUserSettings settings(temp_file_);
+        EXPECT_TRUE(settings.SetString("key1", "v1").ok());
+        EXPECT_TRUE(settings.SetInt("key2", 2).ok());
+        EXPECT_TRUE(settings.SetBool("key3", true).ok());
+        EXPECT_TRUE(settings.SaveSettings().ok());
+    }
+
+    {
+        JsonUserSettings settings_reloaded(temp_file_);
+        EXPECT_TRUE(settings_reloaded.LoadSettings().ok());
+        EXPECT_TRUE(settings_reloaded.HasKey("key1")); // Verify exists
+        EXPECT_TRUE(settings_reloaded.Clear().ok());
+        EXPECT_FALSE(settings_reloaded.HasKey("key1")); // Should be gone from memory immediately
+        EXPECT_TRUE(settings_reloaded.SaveSettings().ok()); // Save the cleared state
+    }
+
+    JsonUserSettings final_settings(temp_file_);
+    EXPECT_TRUE(final_settings.LoadSettings().ok());
+    EXPECT_FALSE(final_settings.HasKey("key1"));
+    EXPECT_FALSE(final_settings.HasKey("key2"));
+    EXPECT_FALSE(final_settings.HasKey("key3"));
 }
 
 /* Commented out for now as JsonUserSettings needs <filesystem> support
@@ -173,4 +253,3 @@ INSTANTIATE_TEST_SUITE_P(
 //     ::testing::InitGoogleTest(&argc, argv);
 //     return RUN_ALL_TESTS();
 // }
-

@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "baseUrl": "http://localhost:8000/TestGame_v1.0.0/", 
+  "files": [
+    {
+      "path": "game.exe",
+      "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 
+      "size": 102400,       
+      "url": "game.exe"     
+    },
+    {
+      "path": "data/config.txt",
+      "hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 
+      "size": 1024,          
+      "url": "data/config.txt"
+    },
+    {
+      "path": "assets/texture.png",
+      "hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc", 
+      "size": 51200,      
+      "url": "assets/texture.png"
+    }
+  ]
+}

@@ -1,51 +1,45 @@
 #ifndef GAME_LAUNCHER_CORE_USER_SETTINGS_H_
 #define GAME_LAUNCHER_CORE_USER_SETTINGS_H_
 
-#include <optional>
-#include <string>
-#include <string_view>
 #include <memory> // For factory return type
+#include <string>
+#include <vector>
+#include <optional> // Include for std::optional
 
-// Forward declaration for potential status objects later
-// namespace absl { class Status; } 
+// Include Abseil status types
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+
+// Include AppSettings struct
+#include "game_launcher/core/app_settings.h"
 
 namespace game_launcher {
 namespace core {
 
 // Interface for managing user settings.
 // Implementations will handle loading from/saving to persistent storage.
+// Methods return absl::Status or absl::StatusOr<T> to indicate success/failure.
 class IUserSettings {
  public:
   virtual ~IUserSettings() = default;
 
   // Loads settings from the persistent source.
-  // Returns status indicating success or failure.
-  virtual bool LoadSettings() = 0; // TODO: Replace bool with absl::Status later
+  // Returns ok status on success, or an error status on failure.
+  virtual absl::Status LoadSettings() = 0;
 
   // Saves the current settings to the persistent source.
-  // Returns status indicating success or failure.
-  virtual bool SaveSettings() = 0; // TODO: Replace bool with absl::Status later
+  // Returns ok status on success, or an error status on failure.
+  virtual absl::Status SaveSettings() = 0;
 
-  // Retrieves a string setting. Returns std::nullopt if the key is not found.
-  virtual std::optional<std::string> GetString(std::string_view key) const = 0;
+  // Retrieves the entire application settings structure.
+  // If settings don't exist, returns a default-constructed AppSettings.
+  virtual AppSettings GetAppSettings() const = 0;
 
-  // Sets a string setting.
-  virtual void SetString(std::string_view key, std::string_view value) = 0;
+  // Saves the entire application settings structure.
+  // Returns ok status on success, error otherwise.
+  virtual absl::Status SetAppSettings(const AppSettings& settings) = 0;
 
-  // Retrieves an integer setting. Returns std::nullopt if the key is not found or not an int.
-  virtual std::optional<int> GetInt(std::string_view key) const = 0;
-
-  // Sets an integer setting.
-  virtual void SetInt(std::string_view key, int value) = 0;
-
-  // Retrieves a boolean setting. Returns std::nullopt if the key is not found or not a bool.
-  virtual std::optional<bool> GetBool(std::string_view key) const = 0;
-
-  // Sets a boolean setting.
-  virtual void SetBool(std::string_view key, bool value) = 0;
-
-  // TODO: Add methods for other data types if needed (e.g., float, lists).
-};
+}; // class IUserSettings
 
 // Factory function to create an in-memory implementation of IUserSettings.
 std::unique_ptr<IUserSettings> CreateInMemoryUserSettings();

@@ -1,0 +1,4 @@
+TestGame Configuration v1.0.1
+SettingA=false
+SettingB=456
+NewSetting=hello

@@ -18,10 +18,10 @@ namespace core {
 struct TaskInternal {
     TaskInfo info;
     std::atomic<bool> cancellation_requested{false};
-    std::future<bool> future; // Holds the result of the async operation
+    std::future<bool> future;         // Holds the result of the async operation
 
     // We need a way to update progress from the worker thread safely
-    std::mutex progress_mutex;
+    mutable std::mutex progress_mutex; // <--- Add 'mutable' here
     float current_progress = 0.0f;
     std::string current_description;
 
@@ -54,7 +54,7 @@ class BasicBackgroundTaskManager : public IBackgroundTaskManager {
   BasicBackgroundTaskManager(BasicBackgroundTaskManager&&) = delete;
   BasicBackgroundTaskManager& operator=(BasicBackgroundTaskManager&&) = delete;
 
-  TaskId StartTask(TaskWorkFunction task_work, std::string_view initial_description) override {
+  TaskId StartTask(TaskWork work, std::string_view initial_description) override {
     TaskId current_id = next_task_id_++; // Atomically get the next ID
 
     auto task_internal = std::make_shared<TaskInternal>();
@@ -66,7 +66,7 @@ class BasicBackgroundTaskManager : public IBackgroundTaskManager {
 
 
     // Lambda to wrap the user's work function and manage state
-    auto task_wrapper = [this, task_internal, task_work]() -> bool {
+    auto task_wrapper = [this, task_internal, work]() -> bool {
         // --- Update status to Running ---
         {
              std::lock_guard<std::mutex> lock(tasks_mutex_);
@@ -87,7 +87,7 @@ class BasicBackgroundTaskManager : public IBackgroundTaskManager {
         std::string error_msg;
         try {
             // Provide the progress update function to the worker
-            success = task_work([task_internal](float percentage, std::string_view description) {
+            success = work([task_internal](float percentage, std::string_view description) {
                 task_internal->UpdateProgress(percentage, description);
                 // Check for cancellation periodically within the work function if possible
                 if (task_internal->cancellation_requested.load()) {
@@ -153,14 +153,15 @@ class BasicBackgroundTaskManager : public IBackgroundTaskManager {
       return std::nullopt; // Task not found
     }
 
-    // Update progress and description from the internal shared state
     auto& task_internal = it->second;
-    {
-        std::lock_guard<std::mutex> progress_lock(task_internal->progress_mutex);
-        task_internal->info.progress_percentage = task_internal->current_progress;
-        task_internal->info.description = task_internal->current_description;
-    }
+    TaskInfo info_copy = task_internal->info; // Create a copy to return
 
+    // Update the copy with the latest progress/description from internal state
+    {
+        std::lock_guard<std::mutex> progress_lock(task_internal->progress_mutex); // OK: progress_mutex is mutable
+        info_copy.progress_percentage = task_internal->current_progress;
+        info_copy.description = task_internal->current_description;
+    }
 
     // Check if the task has finished (without blocking indefinitely)
     // This is a simplified check. A robust system might need callbacks or polling.
@@ -175,30 +176,36 @@ class BasicBackgroundTaskManager : public IBackgroundTaskManager {
             // The future's result isn't explicitly retrieved here to avoid blocking if somehow
             // it wasn't *quite* ready, but the internal status should be authoritative.
             std::cout << "Task " << task_id << ": Detected completion via future status." << std::endl;
+            // Status in info_copy might be slightly stale if the task just finished,
+            // but the wrapper lambda should have updated the internal info.status.
+            // We return the copy which has the latest progress/description and potentially
+            // slightly stale status if completion happened between copy and return.
+            // A more complex system might re-fetch status here.
         }
     }
 
-
-    return it->second->info; // Return a copy of the TaskInfo
+    return info_copy; // Return the updated copy
   }
 
   std::vector<TaskInfo> GetActiveTasks() const override {
     std::vector<TaskInfo> active_tasks;
-    std::lock_guard<std::mutex> lock(tasks_mutex_);
+    std::lock_guard<std::mutex> lock(tasks_mutex_); // tasks_mutex_ is mutable
 
-    std::vector<TaskId> completed_task_ids; // Store IDs of tasks to potentially clean up
+    // std::vector<TaskId> completed_task_ids; // Store IDs of tasks to potentially clean up
 
     for (auto const& [id, task_internal_ptr] : tasks_) {
         const auto& task_internal = *task_internal_ptr; // Dereference shared_ptr
 
-        // Update progress from internal state before checking status
+        TaskInfo info_copy = task_internal.info; // Create a copy for potential inclusion
+
+        // Update the copy with the latest progress/description from internal state
          {
-            std::lock_guard<std::mutex> progress_lock(task_internal.progress_mutex);
-            task_internal.info.progress_percentage = task_internal.current_progress;
-            task_internal.info.description = task_internal.current_description;
+            std::lock_guard<std::mutex> progress_lock(task_internal.progress_mutex); // OK: progress_mutex is mutable
+            info_copy.progress_percentage = task_internal.current_progress;
+            info_copy.description = task_internal.current_description;
          }
 
-        TaskStatus current_status = task_internal.info.status;
+        TaskStatus current_status = info_copy.status; // Use status from the copy
 
         // Non-blocking check if a running/pending task's future is ready
         if ((current_status == TaskStatus::kPending || current_status == TaskStatus::kRunning) &&
@@ -206,16 +213,18 @@ class BasicBackgroundTaskManager : public IBackgroundTaskManager {
             task_internal.future.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
         {
              std::cout << "Task " << id << ": Detected completion during GetActiveTasks scan." << std::endl;
-             // The status should have been updated by the wrapper lambda upon completion.
-             // We rely on the stored status being correct.
+             // We rely on the stored status being correct. Update the copy's status if needed.
+             // Note: The internal info.status might have been updated by the wrapper.
+             // We read it again here to update our copy if the task just finished.
              current_status = task_internal.info.status; // Re-read potentially updated status
+             info_copy.status = current_status; // Update the copy's status
         }
 
 
         if (current_status == TaskStatus::kPending ||
             current_status == TaskStatus::kRunning ||
             current_status == TaskStatus::kPaused) {
-          active_tasks.push_back(task_internal.info); // Copy info
+          active_tasks.push_back(info_copy); // Add the updated copy
         } else {
             // Optionally, mark completed tasks for cleanup later
             // completed_task_ids.push_back(id);
@@ -231,28 +240,19 @@ class BasicBackgroundTaskManager : public IBackgroundTaskManager {
     return active_tasks;
   }
 
-  bool CancelTask(TaskId task_id) override {
+  void RequestCancellation(TaskId task_id) override {
     std::lock_guard<std::mutex> lock(tasks_mutex_);
     auto it = tasks_.find(task_id);
-    if (it == tasks_.end()) {
-      return false; // Task not found
-    }
-
-    auto& task_internal = it->second;
-    if (task_internal->info.status == TaskStatus::kPending ||
-        task_internal->info.status == TaskStatus::kRunning) {
-        if (!task_internal->cancellation_requested.load()) {
-            std::cout << "BasicBackgroundTaskManager: Requesting cancellation for task " << task_id << std::endl;
-            task_internal->cancellation_requested.store(true);
-            // Note: Actual cancellation depends on the TaskWorkFunction checking the flag
-            // or being interruptible. std::async doesn't offer direct cancellation.
-            // A more robust system would use std::jthread (C++20) or custom thread management.
-            return true;
+    if (it != tasks_.end()) {
+        if (it->second->info.status == TaskStatus::kPending || it->second->info.status == TaskStatus::kRunning) {
+            it->second->cancellation_requested.store(true);
+            std::cout << "Task " << task_id << ": Cancellation requested." << std::endl;
+        } else {
+            std::cout << "Task " << task_id << ": Cannot request cancellation, task not pending/running." << std::endl;
         }
-         return false; // Already requested
+    } else {
+         std::cout << "Task " << task_id << ": Cannot request cancellation, task not found." << std::endl;
     }
-
-    return false; // Task is not in a cancellable state
   }
 
  private:
@@ -261,7 +261,9 @@ class BasicBackgroundTaskManager : public IBackgroundTaskManager {
   std::atomic<TaskId> next_task_id_; // Atomically incrementing task ID counter
 };
 
-// TODO: Add a factory function or mechanism to create instances
+std::unique_ptr<IBackgroundTaskManager> CreateBackgroundTaskManager() {
+    return std::make_unique<BasicBackgroundTaskManager>();
+}
 
 } // namespace core
 } // namespace game_launcher

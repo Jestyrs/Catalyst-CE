@@ -1,261 +1,252 @@
 // core/src/json_user_settings.cpp
 #include "game_launcher/core/json_user_settings.h"
-#include <fstream>    // For std::ifstream, std::ofstream
-#include <iostream>   // For std::cerr
+
 #include <filesystem> // For create_directories
+#include <fstream>    // For std::ifstream, std::ofstream
+#include <iostream>   // For std::cerr (used in constructor/destructor)
 #include <utility>    // For std::move
+
+#include "absl/status/status.h"
+#include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h" // For absl::StrCat
+#include "include/base/cef_logging.h" // Correct CEF logging include (full path)
+
+// Include the AppSettings struct definition
+#include "game_launcher/core/app_settings.h"
 
 namespace game_launcher {
 namespace core {
 
 namespace fs = std::filesystem; // Alias for convenience
 
+// --- Helper Functions ---
+
+// Helper function to create error statuses
+absl::Status FileError(const fs::path& path, const std::string& operation, const std::string& details = "") {
+    std::string message = absl::StrCat("JsonUserSettings: Failed to ", operation, " settings file '", path.string(), "'");
+    if (!details.empty()) {
+        absl::StrAppend(&message, ". Details: ", details);
+    }
+    // Determine appropriate error code
+    if (operation == "open" || operation == "read") return absl::UnavailableError(message);
+    if (operation == "write" || operation == "create directory for") return absl::InternalError(message);
+    if (operation == "parse" || operation == "deserialize") return absl::DataLossError(message);
+    return absl::UnknownError(message);
+}
+
+absl::Status JsonUserSettings::EnsureDirectoryExists() {
+    // No lock needed here, called internally by methods that already lock or can tolerate race condition
+    try {
+        if (settings_file_path_.has_parent_path() && !fs::exists(settings_file_path_.parent_path())) {
+            fs::create_directories(settings_file_path_.parent_path());
+            DLOG(INFO) << "JsonUserSettings: Created directory " << settings_file_path_.parent_path().string();
+        }
+        return absl::OkStatus();
+    } catch (const std::exception& e) {
+        return FileError(settings_file_path_, "create directory for", e.what());
+    }
+}
+
+absl::StatusOr<nlohmann::json> JsonUserSettings::ReadJsonFromFile() {
+    // No lock needed here, called internally by LoadSettings which locks.
+    if (!fs::exists(settings_file_path_)) {
+        return absl::NotFoundError(absl::StrCat("Settings file not found: ", settings_file_path_.string()));
+    }
+
+    std::ifstream file_stream(settings_file_path_);
+    if (!file_stream.is_open()) {
+        return FileError(settings_file_path_, "open");
+    }
+
+    try {
+        nlohmann::json json_data;
+        file_stream >> json_data;
+        // Check stream state *after* attempting to read
+        if (!file_stream.good() && !file_stream.eof()) { // Check for errors other than EOF
+             return FileError(settings_file_path_, "read", "Stream error after parsing attempt");
+        }
+        return json_data;
+    } catch (const nlohmann::json::parse_error& e) {
+        return FileError(settings_file_path_, "parse", e.what());
+    } catch (const std::exception& e) {
+        // Catch potential filesystem errors or other general exceptions
+        return FileError(settings_file_path_, "read", e.what());
+    }
+}
+
+absl::Status JsonUserSettings::WriteJsonToFile(const nlohmann::json& json_data) {
+    // No lock needed here, called internally by SaveSettings which locks.
+    try {
+        // Ensure directory exists before writing
+        absl::Status dir_status = EnsureDirectoryExists();
+        if (!dir_status.ok()) {
+            return dir_status;
+        }
+
+        std::ofstream file_stream(settings_file_path_);
+        if (!file_stream.is_open()) {
+            return FileError(settings_file_path_, "open for writing");
+        }
+
+        // Write the JSON object with indentation for readability
+        file_stream << json_data.dump(4); // Use dump(4) for pretty printing
+        file_stream.flush(); // Explicitly flush the buffer
+
+        if (!file_stream) { // Check stream state after writing/flushing
+            file_stream.close(); // Attempt to close even if error occurred
+            return FileError(settings_file_path_, "write", "Stream error after writing");
+        }
+
+        file_stream.close();
+
+        if (!file_stream) { // Check stream state after closing
+            return FileError(settings_file_path_, "close after writing", "Stream error after closing");
+        }
+
+        DLOG(INFO) << "JsonUserSettings: Wrote JSON to " << settings_file_path_.string();
+        return absl::OkStatus();
+
+    } catch (const std::exception& e) {
+        // Catch potential filesystem errors during create_directories or ofstream construction/write
+        return FileError(settings_file_path_, "write", e.what());
+    }
+}
+
+
+// --- Constructor / Destructor ---
+
 JsonUserSettings::JsonUserSettings(fs::path settings_file_path)
-    : settings_file_path_(std::move(settings_file_path)) {
-    // Attempt to load settings immediately upon construction.
-    // If loading fails (e.g., file corrupted but exists), log error but continue.
-    // If file doesn't exist, LoadSettings will create a default empty JSON object.
-    if (!LoadSettings()) {
-        std::cerr << "JsonUserSettings: Initial load failed for "
-                  << settings_file_path_.string() << ". Using default empty settings." << std::endl;
-        // Ensure settings_json_ is a valid (empty) object if loading failed badly
-        settings_json_ = nlohmann::json::object();
-        dirty_flag_ = true; // Mark as dirty so an empty file is created on first save attempt
+    : settings_file_path_(std::move(settings_file_path)),
+      current_settings_(), // Initialize with default AppSettings
+      settings_dirty_(false) { // Start clean
+    // Eagerly load settings on construction. Handle potential load errors.
+    absl::Status load_status = LoadSettings(); // LoadSettings locks the mutex
+    if (!load_status.ok()) {
+        LOG(ERROR) << "Failed to load user settings on initialization from '" << settings_file_path_.string() << "': " << load_status << ". Using default settings.";
+        // Keep default current_settings_
+        // If file didn't exist, LoadSettings already marked dirty_ = true.
+        // If file was corrupt/invalid, mark dirty to ensure overwrite.
+        if (!absl::IsNotFound(load_status)) {
+             settings_dirty_ = true; // Mark dirty to force save of default settings later
+        }
     }
 }
 
 JsonUserSettings::~JsonUserSettings() {
     // Attempt to save settings on destruction if they are dirty.
-    if (dirty_flag_) {
-        if (!SaveSettings()) {
-             // Log error, but can't do much else in destructor
-             std::cerr << "JsonUserSettings: Failed to save settings during destruction for "
-                       << settings_file_path_.string() << std::endl;
+    if (settings_dirty_) {
+        absl::Status save_status = SaveSettings(); // SaveSettings locks the mutex
+        if (!save_status.ok()) {
+            // Log error, but can't throw from destructor
+            // Use std::cerr as LOG might not be safe in all destruction scenarios
+            std::cerr << "JsonUserSettings: [Error] Failed to save settings during destruction for '"
+                      << settings_file_path_.string() << "': " << save_status << std::endl;
         }
     }
 }
 
-bool JsonUserSettings::LoadSettings() {
+// --- IUserSettings Implementation ---
+
+absl::Status JsonUserSettings::LoadSettings() {
     std::lock_guard<std::mutex> lock(mutex_); // Lock for reading file and modifying members
 
+    absl::StatusOr<nlohmann::json> json_data_status = ReadJsonFromFile();
+
+    if (absl::IsNotFound(json_data_status.status())) {
+        // File not found, use default settings and mark dirty to create it on save
+        LOG(INFO) << "Settings file '" << settings_file_path_.string() << "' not found. Using default settings and scheduling creation.";
+        current_settings_ = AppSettings{}; // Reset to default
+        settings_dirty_ = true; // Mark dirty to ensure file creation on next save
+        return absl::OkStatus(); // It's okay to start with defaults if file doesn't exist
+    } else if (!json_data_status.ok()) {
+        // Other error reading file (permission, disk error)
+        LOG(ERROR) << "Failed to read settings file '" << settings_file_path_.string() << "': " << json_data_status.status();
+        // Keep potentially stale current_settings_, don't mark dirty? Or reset to default?
+        // Let's reset to default and mark dirty to attempt recovery on next save.
+        current_settings_ = AppSettings{};
+        settings_dirty_ = true;
+        return json_data_status.status(); // Propagate the read error
+    }
+
+    // File read successfully, try to deserialize
     try {
-        // Check if the file exists
-        if (!fs::exists(settings_file_path_)) {
-            std::cout << "JsonUserSettings: Settings file not found: "
-                      << settings_file_path_.string() << ". Creating default." << std::endl;
-            // Create directory if it doesn't exist
-            if (settings_file_path_.has_parent_path()) {
-                 fs::create_directories(settings_file_path_.parent_path());
-            }
-             // Create an empty JSON object and save it to create the file
-            settings_json_ = nlohmann::json::object();
-            dirty_flag_ = true; // Mark dirty to ensure the file gets created
-            return SaveSettings(); // Use SaveSettings logic to write the initial empty file
-        }
-
-        // File exists, try to read and parse
-        std::ifstream file_stream(settings_file_path_);
-        if (!file_stream.is_open()) {
-             std::cerr << "JsonUserSettings: Failed to open settings file for reading: "
-                       << settings_file_path_.string() << std::endl;
-             // Keep existing potentially stale settings_json_ or default if construction just happened
-             return false;
-        }
-
-        file_stream >> settings_json_;
-
-        // Check if the root is an object (basic validation)
-        if (!settings_json_.is_object()) {
-            std::cerr << "JsonUserSettings: Invalid format in settings file (root is not an object): "
-                      << settings_file_path_.string() << ". Resetting to empty." << std::endl;
-            settings_json_ = nlohmann::json::object();
-            dirty_flag_ = true; // Mark dirty to overwrite the invalid file
-            return false; // Indicate load failure due to format
-        }
-
-        dirty_flag_ = false; // Successfully loaded, clear dirty flag
-        std::cout << "JsonUserSettings: Settings loaded successfully from "
-                  << settings_file_path_.string() << std::endl;
-        return true;
-
-    } catch (const nlohmann::json::parse_error& e) {
-        std::cerr << "JsonUserSettings: Failed to parse JSON settings file: "
-                  << settings_file_path_.string() << ". Error: " << e.what() << ". Resetting to empty." << std::endl;
-        settings_json_ = nlohmann::json::object();
-        dirty_flag_ = true; // Mark dirty to overwrite the invalid file
-        return false;
-    } catch (const std::exception& e) {
-        std::cerr << "JsonUserSettings: Filesystem or other error during load: "
-                  << settings_file_path_.string() << ". Error: " << e.what() << std::endl;
-        // Keep existing potentially stale settings_json_ or default
-        return false;
+        // Attempt to deserialize the entire JSON object into our struct
+        // This relies on NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE in app_settings.h
+        current_settings_ = json_data_status.value().get<AppSettings>();
+        settings_dirty_ = false; // Successfully loaded, clear dirty flag
+        DLOG(INFO) << "JsonUserSettings: Settings loaded successfully from " << settings_file_path_.string();
+        return absl::OkStatus();
+    } catch (const nlohmann::json::exception& e) {
+        // Deserialization error (missing fields, wrong types, etc.)
+        LOG(ERROR) << "Failed to parse/deserialize settings from file '" << settings_file_path_.string() << "'. Error: " << e.what() << ". Using default settings.";
+        current_settings_ = AppSettings{}; // Reset to default on parse error
+        settings_dirty_ = true; // Mark dirty to overwrite corrupted file on next save
+        return FileError(settings_file_path_, "deserialize", e.what());
     }
 }
 
-bool JsonUserSettings::SaveSettings() {
-    std::lock_guard<std::mutex> lock(mutex_); // Lock for potentially writing file and modifying members
+absl::Status JsonUserSettings::SaveSettings() {
+    std::lock_guard<std::mutex> lock(mutex_); // Lock for reading dirty flag and writing file
 
-    if (!dirty_flag_) {
-        // std::cout << "JsonUserSettings: No changes to save for " << settings_file_path_.string() << std::endl;
-        return true; // Nothing to do
+    if (!settings_dirty_) {
+        DLOG(INFO) << "JsonUserSettings: No changes to save for " << settings_file_path_.string();
+        return absl::OkStatus(); // Nothing to do
     }
 
     try {
-         // Ensure directory exists before writing
-         if (settings_file_path_.has_parent_path()) {
-             fs::create_directories(settings_file_path_.parent_path());
-         }
+        // Serialize the current settings struct to JSON
+        // This relies on NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE in app_settings.h
+        nlohmann::json json_data = current_settings_;
 
-        std::ofstream file_stream(settings_file_path_);
-        if (!file_stream.is_open()) {
-            std::cerr << "JsonUserSettings: Failed to open settings file for writing: "
-                      << settings_file_path_.string() << std::endl;
-            return false;
+        // Write the JSON data to the file
+        absl::Status write_status = WriteJsonToFile(json_data);
+        if (!write_status.ok()) {
+            LOG(ERROR) << "Failed to write settings to file '" << settings_file_path_.string() << "': " << write_status;
+            return write_status; // Propagate the write error
         }
 
-        // Write the JSON object with indentation for readability
-        file_stream << settings_json_.dump(4); // Use dump(4) for pretty printing
-        file_stream.close();
+        settings_dirty_ = false; // Successfully saved, clear dirty flag
+        LOG(INFO) << "JsonUserSettings: Settings saved successfully to " << settings_file_path_.string();
+        return absl::OkStatus();
 
-        if (!file_stream) { // Check for errors after closing
-             std::cerr << "JsonUserSettings: Error occurred during writing or closing the settings file: "
-                       << settings_file_path_.string() << std::endl;
-            return false;
-        }
-
-
-        dirty_flag_ = false; // Successfully saved, clear dirty flag
-        std::cout << "JsonUserSettings: Settings saved successfully to "
-                  << settings_file_path_.string() << std::endl;
-        return true;
-
+    } catch (const nlohmann::json::exception& e) {
+        // Should generally not happen if AppSettings and its members are serializable
+        LOG(ERROR) << "Failed to serialize settings to JSON for file '" << settings_file_path_.string() << "'. Error: " << e.what();
+        return absl::InternalError(absl::StrCat("Failed to serialize settings: ", e.what()));
     } catch (const std::exception& e) {
-        std::cerr << "JsonUserSettings: Filesystem or other error during save: "
-                  << settings_file_path_.string() << ". Error: " << e.what() << std::endl;
-        return false;
+        // Catch potential filesystem errors or other general exceptions during write
+        LOG(ERROR) << "Unexpected error during settings save for '" << settings_file_path_.string() << "': " << e.what();
+        return FileError(settings_file_path_, "write", e.what());
     }
 }
 
-// Helper to get a setting node with type checking.
-const nlohmann::json* JsonUserSettings::GetSettingNode(std::string_view key, nlohmann::json::value_t expected_type) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::string key_str(key); // nlohmann::json uses std::string keys
-
-    auto it = settings_json_.find(key_str);
-    if (it == settings_json_.end()) {
-        return nullptr; // Key not found
-    }
-
-    if (it->type() != expected_type) {
-         std::cerr << "JsonUserSettings: Type mismatch for key '" << key
-                   << "'. Expected " << expected_type << ", got " << it->type() << std::endl;
-        return nullptr; // Type mismatch
-    }
-
-    return &(*it); // Return pointer to the json node
+AppSettings JsonUserSettings::GetAppSettings() const {
+    std::lock_guard<std::mutex> lock(mutex_); // Lock for thread-safe read access
+    return current_settings_; // Return a copy
 }
 
-std::optional<std::string> JsonUserSettings::GetString(std::string_view key) const {
-    const nlohmann::json* node = GetSettingNode(key, nlohmann::json::value_t::string);
-    if (!node) {
-        return std::nullopt;
-    }
-    // No need to lock again, GetSettingNode already did
-    return node->get<std::string>();
+absl::Status JsonUserSettings::SetAppSettings(const AppSettings& settings) {
+    std::lock_guard<std::mutex> lock(mutex_); // Lock for thread-safe write access
+
+    // Optional: Add validation logic for settings here if needed
+    // if (!IsValid(settings)) {
+    //     return absl::InvalidArgumentError("Provided settings are invalid.");
+    // }
+
+    // Check if settings actually changed to avoid unnecessary dirty flag/saves
+    // This requires AppSettings to have an equality operator (==) defined.
+    // If AppSettings doesn't have operator==, we assume it changed.
+    // Add operator== to app_settings.h if you want this optimization.
+    // if (current_settings_ != settings) {
+         current_settings_ = settings;
+         settings_dirty_ = true;
+         DLOG(INFO) << "JsonUserSettings: Settings updated and marked dirty.";
+    // } else {
+    //     DLOG(INFO) << "JsonUserSettings: SetAppSettings called but settings were identical, not marking dirty.";
+    // }
+    return absl::OkStatus();
 }
 
-std::optional<int> JsonUserSettings::GetInt(std::string_view key) const {
-    // JSON standard only has number type; we allow integer or floating point
-    // but retrieve as int. Handle potential precision loss if needed elsewhere.
-    const nlohmann::json* node = GetSettingNode(key, nlohmann::json::value_t::number_integer);
-    // Allow number_unsigned or number_float as well? For now, strict integer.
-    if (!node) {
-         // Maybe try number_float too? For now, require integer.
-         // node = GetSettingNode(key, nlohmann::json::value_t::number_float);
-         // if (!node) return std::nullopt;
-         return std::nullopt;
-    }
-     // No need to lock again
-    // Add range checks if necessary?
-    return node->get<int>();
-}
-
-std::optional<bool> JsonUserSettings::GetBool(std::string_view key) const {
-    const nlohmann::json* node = GetSettingNode(key, nlohmann::json::value_t::boolean);
-     if (!node) {
-        return std::nullopt;
-    }
-    // No need to lock again
-    return node->get<bool>();
-}
-
-void JsonUserSettings::SetString(std::string_view key, std::string_view value) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::string key_str(key);
-    std::string value_str(value);
-
-    // Check if value is actually changing to avoid unnecessary dirtying/saving
-    auto it = settings_json_.find(key_str);
-    if (it != settings_json_.end() && it->is_string() && it->get<std::string>() == value_str) {
-        return; // Value is the same, do nothing
-    }
-
-    settings_json_[key_str] = value_str;
-    dirty_flag_ = true;
-}
-
-void JsonUserSettings::SetInt(std::string_view key, int value) {
-     std::lock_guard<std::mutex> lock(mutex_);
-     std::string key_str(key);
-
-     // Check if value is actually changing
-     auto it = settings_json_.find(key_str);
-     if (it != settings_json_.end() && it->is_number_integer() && it->get<int>() == value) {
-         return; // Value is the same
-     }
-
-    settings_json_[key_str] = value;
-    dirty_flag_ = true;
-}
-
-void JsonUserSettings::SetBool(std::string_view key, bool value) {
-     std::lock_guard<std::mutex> lock(mutex_);
-     std::string key_str(key);
-
-      // Check if value is actually changing
-     auto it = settings_json_.find(key_str);
-     if (it != settings_json_.end() && it->is_boolean() && it->get<bool>() == value) {
-         return; // Value is the same
-     }
-
-    settings_json_[key_str] = value;
-    dirty_flag_ = true;
-}
-
-bool JsonUserSettings::HasKey(std::string_view key) const {
-    std::lock_guard<std::mutex> lock(mutex_);
-    return settings_json_.contains(std::string(key));
-}
-
-bool JsonUserSettings::RemoveKey(std::string_view key) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    std::string key_str(key);
-    auto it = settings_json_.find(key_str);
-    if (it != settings_json_.end()) {
-        settings_json_.erase(it);
-        dirty_flag_ = true;
-        return true;
-    }
-    return false;
-}
-
-void JsonUserSettings::Clear() {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (!settings_json_.empty()) {
-        settings_json_.clear(); // Clear the JSON object
-        dirty_flag_ = true;
-    }
-}
 
 } // namespace core
 } // namespace game_launcher

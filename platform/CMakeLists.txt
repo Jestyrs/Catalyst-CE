@@ -3,6 +3,7 @@
 # Define the 'platform' library target
 add_library(platform STATIC # Or SHARED
     # Add platform-specific C++ source files here, e.g.:
+    src/placeholder.cpp # Placeholder to allow build
     # src/windows/win_utils.cpp
     # src/macos/mac_utils.mm
     # src/linux/linux_utils.cpp
@@ -31,4 +32,3 @@ elseif(UNIX AND NOT APPLE)
 endif()
 
 message(STATUS "Configuring platform library target")
-

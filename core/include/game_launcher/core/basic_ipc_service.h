@@ -28,31 +28,15 @@ public:
 
     // --- IIPCService Implementation ---
 
-    // Registers a handler for a specific request type. Thread-safe.
-    absl::Status RegisterRequestHandler(std::string_view request_name, RequestHandler handler) override;
-
     // Retrieves the application version string. Thread-safe (as it returns a copy).
     absl::StatusOr<std::string> GetVersion() override;
 
-    // Attempts to launch the specified game. Thread-safe (assumes launch logic is).
-    absl::Status LaunchGame(std::string_view game_id) override;
-
     // --- BasicIPCService Specific Methods ---
-
-    // Method to be called by the underlying transport layer (e.g., CEF)
-    // when a request is received from the frontend. Thread-safe.
-    // Args:
-    //   request_name: The identifier of the request type.
-    //   request_payload: The data payload associated with the request.
-    //   response_callback: The callback to send the response back to the frontend.
-    void HandleIncomingRequest(std::string_view request_name,
-                               const IpcPayload& request_payload,
-                               ResponseCallback response_callback);
 
 private:
     absl::Mutex handlers_mutex_;
     // Using flat_hash_map for potentially better performance than std::map
-    absl::flat_hash_map<std::string, RequestHandler> request_handlers_ ABSL_GUARDED_BY(handlers_mutex_);
+    // absl::flat_hash_map<std::string, RequestHandler> request_handlers_ ABSL_GUARDED_BY(handlers_mutex_);
 };
 
 } // namespace core

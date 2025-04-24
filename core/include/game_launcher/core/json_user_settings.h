@@ -3,7 +3,10 @@
 #define GAME_LAUNCHER_CORE_JSON_USER_SETTINGS_H_
 
 #include "game_launcher/core/user_settings.h"
-#include "third_party/nlohmann/json.hpp" // Include the JSON library header
+#include "game_launcher/core/app_settings.h" // Include the AppSettings struct
+#include "nlohmann/json.hpp" // Include the JSON library header (path set by CMake)
+#include "absl/status/status.h" // Include absl::Status
+#include "absl/status/statusor.h" // Include absl::StatusOr
 
 #include <filesystem> // For std::filesystem::path
 #include <mutex>      // For std::mutex
@@ -30,40 +33,30 @@ class JsonUserSettings : public IUserSettings {
 
   // Loads settings from the JSON file. Returns true on success, false on failure.
   // Creates the file with default empty JSON {} if it doesn't exist.
-  bool LoadSettings() override;
+  absl::Status LoadSettings() override;
 
   // Saves the current settings to the JSON file. Returns true on success.
   // Only writes if changes have been made since the last load/save.
-  bool SaveSettings() override;
+  absl::Status SaveSettings() override;
 
-  // Retrieves settings. Returns std::nullopt if key not found or type mismatch.
-  std::optional<std::string> GetString(std::string_view key) const override;
-  std::optional<int> GetInt(std::string_view key) const override;
-  std::optional<bool> GetBool(std::string_view key) const override;
+  // Retrieves the current application settings structure.
+  AppSettings GetAppSettings() const override;
 
-  // Sets settings. Marks settings as dirty, requiring a save.
-  void SetString(std::string_view key, std::string_view value) override;
-  void SetInt(std::string_view key, int value) override;
-  void SetBool(std::string_view key, bool value) override;
-
-  // Checks if a key exists.
-  bool HasKey(std::string_view key) const override;
-
-  // Removes a specific key.
-  bool RemoveKey(std::string_view key) override;
-
-  // Clears all settings in memory (does not delete the file until SaveSettings is called).
-  void Clear() override;
+  // Updates the application settings structure.
+  absl::Status SetAppSettings(const AppSettings& settings) override;
 
  private:
-  // Helper to get a setting node with type checking.
-  // Returns nullptr if key not found or type mismatch.
-  const nlohmann::json* GetSettingNode(std::string_view key, nlohmann::json::value_t expected_type) const;
+  // Helper to ensure settings file directory exists.
+  absl::Status EnsureDirectoryExists();
+  // Helper to read JSON from file.
+  absl::StatusOr<nlohmann::json> ReadJsonFromFile();
+  // Helper to write JSON to file.
+  absl::Status WriteJsonToFile(const nlohmann::json& json_data);
 
   const std::filesystem::path settings_file_path_;
-  nlohmann::json settings_json_;
-  mutable std::mutex mutex_; // Protects settings_json_ and dirty_flag_
-  bool dirty_flag_ = false;  // Tracks if changes need to be saved
+  AppSettings current_settings_; // Holds the settings currently in memory
+  mutable std::mutex mutex_; // Mutex to protect access to settings data
+  bool settings_dirty_ = false; // Flag to track if settings need saving
 };
 
 } // namespace core
