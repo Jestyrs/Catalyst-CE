@@ -2,6 +2,7 @@
 #include "game_launcher/cef_integration/launcher_app.h"
 #include <filesystem>                 // For path manipulation (C++17)
 #include <string>
+#include <algorithm> // Added for std::replace
 #include "wrapper/cef_helpers.h" // For CEF_REQUIRE_UI_THREAD etc.
 #include "game_launcher/cef_integration/launcher_client.h" // Ensure client is included
 #include "game_launcher/cef_integration/launcher_message_router_handler.h"
@@ -89,8 +90,23 @@ void LauncherApp::OnContextInitialized() {
     // Specify CEF browser settings here.
     CefBrowserSettings browser_settings;
 
-    // Point to the Vite development server instead
-    std::string initial_url = "http://localhost:5173/";
+    // Construct the path to the local built UI file
+    std::filesystem::path executable_dir = GetExecutableDir_LauncherApp();
+    std::filesystem::path index_html_path = executable_dir / "ui" / "dist" / "index.html";
+
+    // Convert the path to a file:/// URL string suitable for CEF
+    std::string initial_url = "file:///";
+    initial_url += index_html_path.string();
+
+    // Replace backslashes with forward slashes for Windows compatibility
+    #ifdef _WIN32
+    std::replace(initial_url.begin(), initial_url.end(), '\\', '/');
+    // Handle potential drive letter formatting for file URLs (e.g., file:///C:/path)
+    // Check if it starts with "file:///" followed by a drive letter and colon but missing the slash after the colon
+    if (initial_url.length() >= 10 && initial_url[8] != '/' && initial_url[9] == ':') {
+        initial_url.insert(8, "/"); // Insert the missing slash after the drive letter
+    }
+    #endif
 
     LOG(INFO) << "Creating browser with start URL: " << initial_url;
 
@@ -137,6 +153,10 @@ void LauncherApp::OnBeforeCommandLineProcessing(
     // Only add the switch for the main browser process (empty process_type)
     if (process_type.empty()) {
         LOG(INFO) << "Processing command line for browser process."; // Updated log message
+
+        // Add the switch to allow file access from file:// URLs
+        command_line->AppendSwitch("allow-file-access-from-files");
+        LOG(INFO) << "Added switch: --allow-file-access-from-files";
 
         // Example: Add other switches if needed
         // command_line->AppendSwitch("enable-media-stream");
