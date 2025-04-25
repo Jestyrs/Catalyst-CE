@@ -228,24 +228,15 @@ void LauncherMessageRouterHandler::HandleGameAction(const std::string& json_payl
 }
 
 void LauncherMessageRouterHandler::HandleGetGameList(CefRefPtr<CefMessageRouterBrowserSide::Callback> callback) {
-     // TODO: Replace placeholder with actual call to ipc_service_
-     // Example:
-     // auto status_or_list = ipc_service_->GetGameList(); // Assuming such a method exists
-     // if (status_or_list.ok()) {
-     //     nlohmann::json games_json_list = *status_or_list; // Assuming it returns JSON or vector<GameInfo>
-     //     SendJsonResponse(callback, games_json_list);
-     // } else {
-     //     SendErrorResponse(callback, status_or_list.status().ToString(), static_cast<int>(status_or_list.status().code()));
-     // }
-
-     // Placeholder:
-     nlohmann::json game_list_json = nlohmann::json::parse(R"([
-        {"id": "game1", "name": "Cyber Odyssey", "status": "NotInstalled"},
-        {"id": "game2", "name": "Stellar Conquest", "status": "ReadyToPlay"},
-        {"id": "game3", "name": "Mystic Realms", "status": "UpdateRequired"}
-     ])");
-     LOG(INFO) << "Handling getGameListRequest. Responding with placeholder data.";
-     SendJsonResponse(callback, game_list_json);
+    LOG(INFO) << "HandleGetGameList called";
+    // TODO: Replace this placeholder with an actual call to a game service
+    //       or IPC mechanism to retrieve the dynamic game list.
+    //       The real implementation should handle potential errors from the service call.
+    nlohmann::json game_list_json = nlohmann::json::array(); // Return empty array for now
+    std::string game_list_str = game_list_json.dump(); // Should produce "[]"
+    LOG(INFO) << "Sending placeholder (empty) game list: " << game_list_str;
+    callback->Success(game_list_str);
+    // Indicate the message was handled implicitly by not returning false/throwing
 }
 
 void LauncherMessageRouterHandler::HandleLogin(const std::string& json_payload, CefRefPtr<CefMessageRouterBrowserSide::Callback> callback) {
