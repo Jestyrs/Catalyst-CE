@@ -14,6 +14,7 @@
 #include <libloaderapi.h> // For GetModuleFileNameW
 #include "cef_thread.h" // Include for CefGetCurrentThreadId
 #include "include/cef_command_line.h" // Required for CefCommandLine
+#include <atomic> // Include for std::atomic
 
 namespace game_launcher::cef_integration {
 
@@ -33,9 +34,10 @@ std::filesystem::path GetExecutableDir_LauncherApp() {
 } // anonymous namespace
 
 LauncherApp::LauncherApp(std::shared_ptr<core::IIPCService> ipc_service)
-    : parent_hwnd_(nullptr), 
-      ipc_service_(std::move(ipc_service)), // Initialize IPC service from argument
-      client_instance_(new LauncherClient(ipc_service_)) { // Pass service to client
+    : parent_hwnd_(nullptr),
+      ipc_service_(std::move(ipc_service)), // Store potentially nullptr service
+      client_instance_(nullptr),
+      is_shutting_down_(false) { // Initialize the flag
     LOG(INFO) << "LauncherApp created.";
     render_process_handler_ = new LauncherRenderProcessHandler();
 }
@@ -43,6 +45,17 @@ LauncherApp::LauncherApp(std::shared_ptr<core::IIPCService> ipc_service)
 void LauncherApp::SetParentHWND(HWND hwnd) {
     parent_hwnd_ = hwnd;
     LOG(INFO) << "LauncherApp::SetParentHWND - Parent HWND set to: " << parent_hwnd_;
+}
+
+// Method to signal that shutdown is starting
+void LauncherApp::NotifyShutdown() {
+    LOG(INFO) << "LauncherApp::NotifyShutdown called.";
+    is_shutting_down_.store(true);
+}
+
+// Check if the application is currently shutting down.
+bool LauncherApp::IsShuttingDown() const {
+    return is_shutting_down_.load();
 }
 
 // CefBrowserProcessHandler methods:
@@ -101,11 +114,6 @@ void LauncherApp::OnContextInitialized() {
     // Replace backslashes with forward slashes for Windows compatibility
     #ifdef _WIN32
     std::replace(initial_url.begin(), initial_url.end(), '\\', '/');
-    // Handle potential drive letter formatting for file URLs (e.g., file:///C:/path)
-    // Check if it starts with "file:///" followed by a drive letter and colon but missing the slash after the colon
-    if (initial_url.length() >= 10 && initial_url[8] != '/' && initial_url[9] == ':') {
-        initial_url.insert(8, "/"); // Insert the missing slash after the drive letter
-    }
     #endif
 
     LOG(INFO) << "Creating browser with start URL: " << initial_url;
@@ -128,8 +136,28 @@ void LauncherApp::OnContextInitialized() {
     }
 }
 
+// Method to set the IPC service after initial construction (usually in the main process)
+void LauncherApp::SetIPCService(std::shared_ptr<core::IIPCService> service) {
+    LOG(INFO) << "LauncherApp::SetIPCService called.";
+    if (ipc_service_) {
+        LOG(WARNING) << "SetIPCService called when ipc_service_ was already set.";
+    }
+    ipc_service_ = std::move(service);
+    LOG(INFO) << "IPC Service set in LauncherApp.";
+    // Now that we have the IPC service, create the client handler instance
+    if (!client_instance_ && ipc_service_) {
+        client_instance_ = new LauncherClient(ipc_service_, this); // Pass 'this' (LauncherApp*) 
+        LOG(INFO) << "LauncherClient instance created in SetIPCService.";
+    } else if (!ipc_service_) {
+        LOG(ERROR) << "LauncherApp::SetIPCService - Attempted to set a null IPC service.";
+    } else {
+        LOG(WARNING) << "LauncherApp::SetIPCService - Client instance already exists.";
+    }
+}
+
 // Method to get the client instance
 CefRefPtr<LauncherClient> LauncherApp::GetLauncherClient() const {
+    CEF_REQUIRE_UI_THREAD(); // Restored the macro
     return client_instance_;
 }
 

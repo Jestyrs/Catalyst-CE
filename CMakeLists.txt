@@ -149,19 +149,45 @@ else()
 endif()
 
 # === Custom Target for Building UI ===
+# Define destination path (adjust if CMAKE_RUNTIME_OUTPUT_DIRECTORY is set differently)
+set(UI_DEST_DIR "${CMAKE_BINARY_DIR}/bin/${CMAKE_CFG_INTDIR}/ui/dist")
+
 if(NPM_EXECUTABLE)
-    add_custom_target(BuildUI ALL
-        COMMAND ${NPM_EXECUTABLE} install  # Run npm install first
-        COMMAND ${NPM_EXECUTABLE} run build # Then run the build script
+    # Target 1: Run npm install and build
+    add_custom_target(BuildUI_Npm ALL
+        COMMAND ${NPM_EXECUTABLE} install
+        COMMAND ${NPM_EXECUTABLE} run build
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/ui
-        COMMENT "Building UI assets (npm install && npm run build)"
+        COMMENT "Building UI assets (npm install & build)"
         VERBATIM
     )
-else()
-    # Create a dummy target if npm isn't found, build will likely fail later but avoids CMake error here
+
+    # Target 2: Copy the built assets (depends on npm build finishing)
     add_custom_target(BuildUI ALL
-        COMMENT "Skipping UI build: NPM not found."
+        # 3. Clean destination directory first
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${UI_DEST_DIR}"
+        # 4. Ensure destination directory exists
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${UI_DEST_DIR}"
+        # 5. Copy built assets from ui/dist
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/ui/dist" "${UI_DEST_DIR}"
+        # No WORKING_DIRECTORY needed here as paths are absolute
+        COMMENT "Copying built UI assets to ${UI_DEST_DIR}"
+        VERBATIM
     )
+
+    # Ensure copy happens after npm build
+    add_dependencies(BuildUI BuildUI_Npm)
+
+else()
+    # Create dummy targets if npm isn't found
+    add_custom_target(BuildUI_Npm ALL
+        COMMENT "Skipping UI npm build: NPM not found."
+    )
+    add_custom_target(BuildUI ALL
+        COMMENT "Skipping UI asset copy: NPM not found."
+    )
+    # Still add dependency for consistency, though both are dummy
+    add_dependencies(BuildUI BuildUI_Npm)
 endif()
 
 # --- Project Structure ---
@@ -182,25 +208,13 @@ add_executable(GameLauncher WIN32
 # Ensure GameLauncher depends on the UI build completing first
 add_dependencies(GameLauncher BuildUI)
 
-# Custom command to copy BUILT UI resources (dist folder)
-# Ensure the target directory exists before copying
-add_custom_command(
-    TARGET GameLauncher POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:GameLauncher>/ui/dist"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
-        "${CMAKE_SOURCE_DIR}/ui/dist" # <<< Copy the BUILT 'dist' directory
-        "$<TARGET_FILE_DIR:GameLauncher>/ui/dist" # <<< To the 'dist' subdirectory in the target
-    COMMENT "Copying built UI resources (ui/dist)"
-    VERBATIM
-)
-
 # Custom command to copy resource files (manifests, etc.)
 add_custom_command(
     TARGET GameLauncher POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:GameLauncher>/resources" # Create destination first
-    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
-        "${CMAKE_SOURCE_DIR}/resources"
-        "$<TARGET_FILE_DIR:GameLauncher>/resources"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/ui/games.json" # <<< Source file
+        "$<TARGET_FILE_DIR:GameLauncher>/resources" # <<< Destination directory
     COMMENT "Copying resource files"
     VERBATIM
 )

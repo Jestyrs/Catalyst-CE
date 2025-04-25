@@ -34,17 +34,23 @@ CoreIPCService::CoreIPCService(
       background_task_manager_(background_task_manager),
       stop_monitoring_(false) // Ensure stop flag is initially false
       {
+    LOG(INFO) << "CoreIPCService constructor entered.";
     LOG(INFO) << "CoreIPCService initializing...";
     if (!background_task_manager_) {
         LOG(FATAL) << "CoreIPCService requires a valid BackgroundTaskManager instance.";
         // Or throw an exception, depending on error handling strategy
     }
+    LOG(INFO) << "CoreIPCService calling InitializeGameStates...";
     InitializeGameStates();
+    LOG(INFO) << "CoreIPCService finished InitializeGameStates.";
+    LOG(INFO) << "CoreIPCService creating monitor thread...";
     monitor_thread_ = std::jthread(&CoreIPCService::MonitorTasksLoop, this); 
+    LOG(INFO) << "CoreIPCService monitor thread object created.";
     LOG(INFO) << "CoreIPCService initialization complete. Monitor thread started.";
 }
 
 CoreIPCService::~CoreIPCService() {
+    LOG(INFO) << "CoreIPCService destructor entered.";
     LOG(INFO) << "CoreIPCService shutting down...";
     stop_monitoring_.store(true); // Signal the thread to stop
     monitor_cv_.notify_one();    // Wake up the thread if it's waiting
@@ -356,14 +362,17 @@ void CoreIPCService::NotifyListener(IGameStatusListener* listener, const std::ve
 
 // --- Background Task Monitoring ---
 void CoreIPCService::MonitorTasksLoop() {
+    LOG(INFO) << "MonitorTasksLoop thread started.";
     LOG(INFO) << "Starting background task monitoring loop.";
     std::unique_lock<std::mutex> lock(monitor_mutex_);
 
     while (!stop_monitoring_.load(std::memory_order_acquire)) {
+        LOG(INFO) << "MonitorTasksLoop iteration starting.";
         // Wait for a notification or timeout
         monitor_cv_.wait_for(lock, std::chrono::seconds(5), [this] {
             return stop_monitoring_.load(std::memory_order_acquire);
         });
+        LOG(INFO) << "MonitorTasksLoop returned from wait_for.";
 
         if (stop_monitoring_.load(std::memory_order_acquire)) {
             break;

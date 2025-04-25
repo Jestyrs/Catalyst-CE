@@ -1,5 +1,6 @@
 // cef_integration/src/launcher_render_process_handler.cpp
 #include "game_launcher/cef_integration/launcher_render_process_handler.h"
+#include "game_launcher/cef_integration/game_launcher_api_handler.h"
 #include "base/cef_logging.h" // Assuming correct path
 #include "wrapper/cef_helpers.h"
 #include "wrapper/cef_message_router.h"
@@ -19,20 +20,72 @@ LauncherRenderProcessHandler::~LauncherRenderProcessHandler() {
 void LauncherRenderProcessHandler::OnContextCreated(CefRefPtr<CefBrowser> browser,
                                                 CefRefPtr<CefFrame> frame,
                                                 CefRefPtr<CefV8Context> context) {
-    CEF_REQUIRE_RENDERER_THREAD(); // Macro call - semicolon likely included in macro
-    LOG(INFO) << "Render process V8 context created for frame: " << frame->GetIdentifier(); // Ends with ;
-
-    // Create the renderer-side router for query handling if it doesn't exist.
+    // Ensure the message router is created (it's a member variable)
     if (!message_router_) {
-        CefMessageRouterConfig config; // Ends with ;
-        message_router_ = CefMessageRouterRendererSide::Create(config); // Ends with ;
-        LOG(INFO) << "Renderer-side message router created."; // Ends with ;
+        CefMessageRouterConfig config;
+        message_router_ = CefMessageRouterRendererSide::Create(config);
+        LOG(INFO) << "LauncherRenderProcessHandler - Created renderer-side message router.";
     }
 
-    // Give the message router an opportunity to attach handlers to the context.
-    // This is what injects cefQuery, cefQueryCancel etc.
-    message_router_->OnContextCreated(browser, frame, context); // Ends with ;
-} // Correct closing brace for OnContextCreated
+    LOG(INFO) << "LauncherRenderProcessHandler::OnContextCreated - Entered for frame: " << frame->GetIdentifier();
+
+    // Only inject the API into the main frame's context
+    if (!frame->IsMain()) {
+        LOG(INFO) << "LauncherRenderProcessHandler::OnContextCreated - Skipping non-main frame.";
+        return;
+    }
+
+    LOG(INFO) << "LauncherRenderProcessHandler::OnContextCreated - Injecting API into main frame.";
+
+    // Get the global window object
+    CefRefPtr<CefV8Value> global = context->GetGlobal();
+    if (!global) {
+        LOG(ERROR) << "LauncherRenderProcessHandler::OnContextCreated - Failed to get V8 global object.";
+        return;
+    }
+
+    // Create the V8 handler instance
+    CefRefPtr<GameLauncherApiHandler> api_handler = new GameLauncherApiHandler();
+    if (!api_handler) {
+        LOG(ERROR) << "LauncherRenderProcessHandler::OnContextCreated - Failed to create GameLauncherApiHandler instance.";
+        return;
+    }
+
+    // Create the 'gameLauncherAPI' object
+    CefRefPtr<CefV8Value> api_object = CefV8Value::CreateObject(nullptr, nullptr); // Use version with null accessor/interceptor
+    if (!api_object) {
+        LOG(ERROR) << "LauncherRenderProcessHandler::OnContextCreated - Failed to create api_object (CefV8Value::CreateObject)." ;
+        return;
+    }
+    LOG(INFO) << "LauncherRenderProcessHandler::OnContextCreated - api_object created successfully.";
+
+    // Create and attach functions to the api_object
+    const char* function_names[] = {"getGameList", "getAuthStatus", "getVersion"};
+    for (const char* func_name : function_names) {
+        CefRefPtr<CefV8Value> func = CefV8Value::CreateFunction(func_name, api_handler);
+        if (!func) {
+            LOG(ERROR) << "LauncherRenderProcessHandler::OnContextCreated - Failed to create function '" << func_name << "'.";
+            continue; // Skip attaching this function
+        }
+        bool success = api_object->SetValue(func_name, func, V8_PROPERTY_ATTRIBUTE_NONE);
+        if (!success) {
+             LOG(ERROR) << "LauncherRenderProcessHandler::OnContextCreated - Failed to set function '" << func_name << "' on api_object.";
+        }
+        LOG(INFO) << "LauncherRenderProcessHandler::OnContextCreated - Function '" << func_name << "' attached.";
+    }
+
+    // Attach the 'gameLauncherAPI' object to the window object
+    bool setObjectSuccess = global->SetValue("gameLauncherAPI", api_object, V8_PROPERTY_ATTRIBUTE_NONE);
+    if (!setObjectSuccess) {
+        LOG(ERROR) << "LauncherRenderProcessHandler::OnContextCreated - Failed to attach gameLauncherAPI to window object!";
+    } else {
+        LOG(INFO) << "LauncherRenderProcessHandler::OnContextCreated - gameLauncherAPI successfully attached to window object.";
+    }
+
+    // --- Message Router Setup ---
+    // Call OnContextCreated on the instance variable
+    message_router_->OnContextCreated(browser, frame, context);
+}
 
 void LauncherRenderProcessHandler::OnContextReleased(CefRefPtr<CefBrowser> browser,
                                                  CefRefPtr<CefFrame> frame,

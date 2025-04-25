@@ -1,619 +1,448 @@
 import React, { useState, useEffect } from 'react';
+import './index.css'; // Ensure Tailwind is imported
 
-// --- Data Structures ---
+// --- Component Interfaces ---
 interface Game {
   id: string;
   name: string;
-  status: 'ReadyToPlay' | 'NotInstalled' | 'UpdateRequired' | 'Installing' | 'Downloading' | 'Launching' | 'Running' | 'Verifying';
-  imageUrl?: string;
-  description?: string;
-  progress?: number;
-  version?: string; // Added version
+  status: 'ReadyToPlay' | 'Downloading' | 'Installing' | 'UpdateRequired' | 'NotInstalled' | 'Verifying' | 'Repairing'; // Added Verifying/Repairing
+  imageUrl: string;
+  description: string;
+  version: string;
+  progress?: number; // Optional download/install progress (0-100)
 }
 
 interface UserProfile {
-    username: string;
-    // Add other profile fields like avatarUrl, etc.
+  username: string;
+  // Add other profile details: avatarUrl, email, etc.
 }
 
-interface AuthStatus {
-    status: 'Unknown' | 'LoggedOut' | 'LoggingIn' | 'LoggedIn' | 'LoggingOut' | 'Error';
-    profile?: UserProfile;
-    error?: string;
+type AuthStatus =
+  | { status: 'LoggedIn'; profile: UserProfile }
+  | { status: 'LoggedOut' }
+  | { status: 'LoggingIn' }
+  | { status: 'LoggingOut' }
+  | { status: 'Error'; error?: string; profile?: UserProfile | null }; // Keep profile on error if possible
+
+// Define the API structure for type safety (ensure this matches your actual API)
+interface GameLauncherAPI {
+  getGameList: (onSuccess: (games: Game[]) => void, onFailure: (error: string) => void) => void;
+  getAuthStatus: (onSuccess: (status: AuthStatus) => void, onFailure: (error: string) => void) => void;
+  getVersion: (onSuccess: (version: string) => void, onFailure: (error: string) => void) => void;
+  performGameAction: (action: 'install' | 'launch' | 'update', gameId: string, onSuccess: () => void, onFailure: (error: string) => void) => void;
+  login: (onSuccess: () => void, onFailure: (error: string) => void) => void;
+  logout: (onSuccess: () => void, onFailure: (error: string) => void) => void;
+  // Add other methods as needed
 }
 
-// --- Mock API ---
-// Replace with actual backend communication logic
-const mockApi = {
-  getGameList: async (): Promise<Game[]> => {
-    console.log("Mock API: getGameList called");
-    await new Promise(resolve => setTimeout(resolve, 500));
-    return [
-      { id: "game1", name: "Cyber Odyssey", status: "NotInstalled", imageUrl: "https://placehold.co/600x400/1f2937/9ca3af?text=Cyber+Odyssey", description: "Explore a vast cyberpunk metropolis.", version: "1.2.0" },
-      { id: "game2", name: "Stellar Conquest", status: "ReadyToPlay", imageUrl: "https://placehold.co/600x400/374151/9ca3af?text=Stellar+Conquest", description: "Conquer the galaxy in this epic space strategy game.", version: "3.1.5" },
-      { id: "game3", name: "Mystic Realms", status: "UpdateRequired", imageUrl: "https://placehold.co/600x400/4b5563/9ca3af?text=Mystic+Realms", description: "Embark on a magical fantasy adventure.", version: "1.0.0" },
-      { id: "game4", name: "Quantum Racer", status: "Downloading", progress: 35, imageUrl: "https://placehold.co/600x400/6b7280/111827?text=Quantum+Racer", description: "Race through dimensions at impossible speeds.", version: "2.0.1" },
-      { id: "game5", name: "Project Chimera", status: "Installing", progress: 80, imageUrl: "https://placehold.co/600x400/9ca3af/111827?text=Project+Chimera", description: "Survive the genetic horrors.", version: "0.9.0" },
-    ];
-  },
-  getAuthStatus: async (): Promise<AuthStatus> => {
-    console.log("Mock API: getAuthStatus called");
-    await new Promise(resolve => setTimeout(resolve, 300));
-    // Simulate logged-out state initially
-     return { status: 'LoggedOut' };
-    // Simulate logged-in state:
-    // return { status: 'LoggedIn', profile: { username: 'PlayerOne' } };
-  },
-   login: async (user: string, pass: string): Promise<AuthStatus> => {
-     console.log("Mock API: login called for", user);
-     await new Promise(resolve => setTimeout(resolve, 800));
-     if (user === 'test' && pass === 'pw') {
-       // Simulate successful login and return new status
-       return { status: 'LoggedIn', profile: { username: 'PlayerTest' } };
-     } else {
-        // Simulate login failure
-       return { status: 'Error', error: 'Invalid credentials' };
-       // Or throw new Error("Invalid credentials");
-     }
-   },
-   logout: async (): Promise<AuthStatus> => {
-      console.log("Mock API: logout called");
-      await new Promise(resolve => setTimeout(resolve, 400));
-      // Simulate successful logout
-      return { status: 'LoggedOut' };
-   },
-   performGameAction: async (gameId: string, action: string): Promise<{ status: string }> => {
-      console.log(`Mock API: performGameAction called for ${gameId}, action: ${action}`);
-      await new Promise(resolve => setTimeout(resolve, 600));
-      // Simulate backend accepting the action
-      return { status: `${action} initiated for ${gameId}` };
-   },
-   getVersion: async (): Promise<{ version: string }> => {
-      console.log("Mock API: getVersion called");
-      await new Promise(resolve => setTimeout(resolve, 100));
-      return { version: "1.0.1-mock" };
-   }
-   // Add mock functions for settings if needed
+// Extend the Window interface to declare the injected API
+declare global {
+  interface Window {
+    gameLauncherAPI?: GameLauncherAPI;
+    cefQuery?: (query: { request: string; persistent?: boolean; onSuccess: (response: any) => void; onFailure: (error_code: number, error_message: string) => void }) => void;
+    // Optional: Add cefQueryCancel if needed
+  }
+}
+
+// --- Child Components ---
+
+// Game Item Component
+const GameItem: React.FC<{ game: Game; isSelected: boolean; onClick: () => void }> = React.memo(({ game, isSelected, onClick }) => {
+  return (
+    <div
+      className={`flex items-center p-3 rounded-lg mb-2 cursor-pointer transition-colors duration-150 ease-in-out ${isSelected ? 'bg-purple-700 shadow-md' : 'bg-gray-700 hover:bg-gray-600'}`}
+      onClick={onClick}
+    >
+      <img src={game.imageUrl} alt={game.name} className="w-16 h-10 object-cover rounded mr-4" />
+      <div className="flex-grow">
+        <h3 className={`font-semibold ${isSelected ? 'text-white' : 'text-gray-200'}`}>{game.name}</h3>
+        <p className={`text-xs ${isSelected ? 'text-purple-200' : 'text-gray-400'}`}>{game.status}</p>
+      </div>
+    </div>
+  );
+});
+
+// Game Details Component
+const GameDetails: React.FC<{ game: Game | null; onAction: (gameId: string, action: string) => void }> = ({ game, onAction }) => {
+  if (!game) {
+    return <div className="text-center text-gray-500 p-10">Select a game to see details</div>;
+  }
+
+  const renderActionButton = () => {
+    switch (game.status) {
+      case 'ReadyToPlay':
+        return <button onClick={() => onAction(game.id, 'launch')} className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out">Launch</button>;
+      case 'UpdateRequired':
+        return <button onClick={() => onAction(game.id, 'update')} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out">Update</button>;
+      case 'NotInstalled':
+        return <button onClick={() => onAction(game.id, 'install')} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out">Install</button>;
+      case 'Downloading':
+      case 'Installing':
+      case 'Verifying':
+      case 'Repairing':
+        return (
+          <div className="w-full bg-gray-600 rounded h-8 flex items-center justify-center relative overflow-hidden">
+            <div className="absolute left-0 top-0 h-full bg-blue-500 transition-all duration-300 ease-linear" style={{ width: `${game.progress || 0}%` }}></div>
+            <span className="relative z-10 text-white text-sm font-medium">{game.status}... {game.progress || 0}%</span>
+          </div>
+        );
+      default:
+        return <button className="w-full bg-gray-500 text-white font-bold py-2 px-4 rounded cursor-not-allowed" disabled>Unavailable</button>;
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full bg-gray-850 rounded-lg overflow-hidden shadow-inner">
+      <img src={game.imageUrl} alt={game.name} className="w-full h-48 object-cover" />
+      <div className="p-6 flex-grow flex flex-col">
+        <h2 className="text-2xl font-bold mb-2 text-white">{game.name}</h2>
+        <p className="text-gray-400 text-sm mb-4 flex-grow">{game.description}</p>
+        <div className="text-xs text-gray-500 mb-4">Version: {game.version} | Status: {game.status}</div>
+        <div className="mt-auto">
+          {renderActionButton()}
+        </div>
+      </div>
+    </div>
+  );
 };
 
-// --- Components ---
-
-// Inline SVG Icon Component (Example for Settings)
-const SettingsIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className || "w-5 h-5"} // Default size
-  >
-    <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 .54 1.11l.12 1a2 2 0 0 1-.54 1.11l-.15.1a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-.54-1.11l-.12-1a2 2 0 0 1 .54-1.11l.15-.1a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-);
-
-// Simple Loading Spinner
-const LoadingSpinner: React.FC = () => (
-  <div className="flex justify-center items-center h-full p-10">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-  </div>
-);
-
 // Authentication Area Component
-const AuthArea: React.FC<{
+const AuthArea: React.FC<{ 
   authStatus: AuthStatus | null;
-  onLogin: (user: string, pass: string) => Promise<void>;
-  onLogout: () => Promise<void>;
-}> = ({ authStatus, onLogin, onLogout }) => {
-  const [user, setUser] = useState('');
-  const [pass, setPass] = useState('');
+  onLogin: () => void; 
+  onLogout: () => void;
+  loginError: string | null;
+}> = ({ authStatus, onLogin, onLogout, loginError }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const handleLoginSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setError(null); // Clear previous errors
+    // TODO: In a real scenario, get credentials securely.
+    // For now, assume onLogin triggers the appropriate flow.
     try {
-      await onLogin(user, pass);
+      await onLogin(); // Call the parent handler
       // Parent component will update state based on login result
-      // Only clear form if login attempt didn't immediately return an error state
-      if (authStatus?.status !== 'Error') {
-          setUser('');
-          setPass('');
+      if (authStatus?.status !== 'Error' && authStatus?.status !== 'LoggingIn') {
+         setIsLoading(false);
       }
-    } catch (err: any) {
-      // This catch block might not be needed if onLogin handles errors internally
-      // and updates the authStatus prop with the error message.
-      setError(err.message || "Login failed");
+    } catch (error) {
+      // Error should be handled and displayed via loginError prop by parent
+      console.error("Error during login submission in AuthArea:", error);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleLogoutClick = async () => {
-     setIsLoading(true);
-     setError(null);
-     try {
-        await onLogout();
-     } catch (err: any) {
-        setError(err.message || "Logout failed");
-     } finally {
-        setIsLoading(false);
-     }
+  if (authStatus?.status === 'LoggingIn' || authStatus?.status === 'LoggingOut' || isLoading) {
+    return <div className="text-center text-gray-400 p-4">Loading...</div>;
   }
 
-  // Update local error state if the authStatus prop indicates an error
-  useEffect(() => {
-      setError(authStatus?.error || null);
-  }, [authStatus]);
-
-  if (authStatus?.status === 'LoggedIn' && authStatus.profile) {
+  if (authStatus?.status === 'LoggedIn') {
     return (
-      <div className="flex items-center space-x-3 text-sm">
-        {/* Placeholder for Avatar */}
-        {/* <img src={authStatus.profile.avatarUrl || 'default-avatar.png'} alt="User Avatar" className="w-6 h-6 rounded-full bg-gray-600"/> */}
-        <span className="text-gray-300">Welcome, <span className="font-semibold text-blue-400">{authStatus.profile.username}</span>!</span>
-        <button
-          onClick={handleLogoutClick}
-          disabled={isLoading}
-          className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-white text-xs font-medium transition duration-150 ease-in-out disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2 focus:ring-offset-gray-800"
-        >
-          {isLoading ? '...' : 'Logout'}
+      <div className="text-center p-4 bg-gray-700 rounded-lg shadow-md">
+        <p className="text-green-400 mb-2">Welcome, {authStatus.profile.username}!</p>
+        <button onClick={onLogout} className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out">
+          Logout
         </button>
       </div>
     );
   }
 
+  // Logged Out or Error state
   return (
-    <form onSubmit={handleLoginSubmit} className="flex items-center space-x-2 relative">
-      <input
-        type="text"
-        value={user}
-        onChange={(e) => setUser(e.target.value)}
-        placeholder="Username"
-        required
-        className={`px-2 py-1 bg-gray-700 border ${error ? 'border-red-500' : 'border-gray-600'} rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500`}
-        aria-invalid={!!error}
-        aria-describedby={error ? "login-error" : undefined}
-      />
-      <input
-        type="password"
-        value={pass}
-        onChange={(e) => setPass(e.target.value)}
-        placeholder="Password"
-        required
-        className={`px-2 py-1 bg-gray-700 border ${error ? 'border-red-500' : 'border-gray-600'} rounded text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 placeholder-gray-500`}
-        aria-invalid={!!error}
-        aria-describedby={error ? "login-error" : undefined}
-      />
-      <button
-        type="submit"
-        disabled={isLoading || authStatus?.status === 'LoggingIn'}
-        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-white text-sm font-medium transition duration-150 ease-in-out disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800"
-      >
-        {isLoading || authStatus?.status === 'LoggingIn' ? '...' : 'Login'}
-      </button>
-      {error && <p id="login-error" className="absolute top-full left-0 text-red-400 text-xs mt-1">{error}</p>}
-    </form>
+    <div className="p-4 bg-gray-700 rounded-lg shadow-md">
+      <h3 className="text-lg font-semibold mb-3 text-center text-white">Login</h3>
+      <form onSubmit={handleSubmit} className="space-y-3">
+        {loginError && (
+          <p className="text-red-400 text-sm text-center">{loginError}</p>
+        )}
+        <button type="submit" disabled={isLoading} className="w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out disabled:opacity-50">
+          {isLoading ? 'Logging in...' : 'Login / Authenticate'}
+        </button>
+      </form>
+    </div>
   );
 };
 
+// --- Main App Component ---
+function App() {
+  const [games, setGames] = useState<Game[]>([]);
+  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [isLoadingGames, setIsLoadingGames] = useState(true); // Changed to true initially
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
+  const [version, setVersion] = useState<string>('N/A'); // Default to N/A
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [api, setApi] = useState<GameLauncherAPI | null>(null);
+  const [apiError, setApiError] = useState<string | null>(null); // State for API connection errors
 
-// Game List Item Component
-const GameListItem: React.FC<{ game: Game; isSelected: boolean; onSelect: (id: string) => void }> = ({ game, isSelected, onSelect }) => (
-  <button
-    onClick={() => onSelect(game.id)}
-    className={`block w-full text-left px-4 py-3 rounded-md transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-800 ${
-      isSelected
-        ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-md' // Enhanced selected state
-        : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-    }`}
-  >
-    <span className="font-medium">{game.name}</span>
-    {/* Optional: Add small status indicator */}
-    {/* <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${game.status === 'ReadyToPlay' ? 'bg-green-600' : 'bg-gray-500'}`}>{game.status}</span> */}
-  </button>
-);
+  // Fetch initial data on mount
+  useEffect(() => {
+    const checkForApi = async () => {
+      // Give CEF potentially a bit more time
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
-// Game Details Panel Component
-const GameDetailsPanel: React.FC<{ game: Game | null }> = ({ game }) => {
-  if (!game) {
+      if (window.gameLauncherAPI) {
+        console.log("Real API found. Using it for initial fetch.");
+        const resolvedApi = window.gameLauncherAPI;
+        setApi(resolvedApi); // Set the resolved API
+
+        try {
+          // Fetch initial data using callbacks
+          resolvedApi.getGameList(
+            (fetchedGames) => {
+              setGames(fetchedGames);
+              // Select first game if list isn't empty and none is selected
+              if (fetchedGames.length > 0 && !selectedGameId) {
+                setSelectedGameId(fetchedGames[0].id);
+              }
+            },
+            (error) => {
+              console.error('Error getting game list:', error);
+              setApiError(`Failed to load game list: ${error}`); // Set API error state
+            }
+          );
+
+          resolvedApi.getAuthStatus(
+            (fetchedStatus) => setAuthStatus(fetchedStatus),
+            (error) => {
+              console.error('Error getting auth status:', error);
+              // Don't necessarily block the UI for auth error, just log it
+            }
+          );
+
+          resolvedApi.getVersion(
+            (fetchedVersion) => setVersion(fetchedVersion),
+            (error) => {
+              console.error('Error getting version:', error);
+              setVersion('Error'); // Indicate version fetch failed
+            }
+          );
+
+        } catch (error) {
+          // This catch is unlikely to trigger if API calls use callbacks properly,
+          // but kept for safety.
+          console.error("Unexpected synchronous error during initial data fetch:", error);
+          setApiError('An unexpected error occurred while fetching initial data.');
+        }
+
+      } else {
+        console.error("CRITICAL: window.gameLauncherAPI not found after delay!");
+        setApiError("Failed to connect to the launcher backend. Please restart the launcher.");
+        // Keep loading games false so the error message shows
+        setAuthStatus({ status: 'Error', error: 'API unavailable' });
+        setVersion('N/A');
+        setGames([]);
+      }
+
+      // Only set loading to false after attempting to fetch or determining API is missing
+      setIsLoadingGames(false);
+    };
+
+    checkForApi();
+
+    // No cleanup needed for API listener in this version
+
+  }, []); // Empty dependency array ensures this runs once on mount
+
+  // Handler for login action
+  const handleLogin = () => { 
+    if (!api) {
+       setLoginError("Login service unavailable.");
+       return;
+    }
+    setLoginError(null); // Clear previous errors
+    setAuthStatus({ status: 'LoggingIn' }); // Set loading state
+    console.log("Attempting login via API...");
+    try {
+      // Call the API's login method (no user/pass here, assumes external flow or stored token)
+      api.login(
+        () => {
+          console.log("Login successful (callback)");
+          // Refresh auth status after successful login
+          api.getAuthStatus(
+            (fetchedStatus) => setAuthStatus(fetchedStatus),
+            (error) => {
+                console.error('Error refreshing auth status after login:', error);
+                // Keep the user logged in visually, but maybe show a transient error
+                // setLoginError('Failed to refresh status after login.');
+            }
+          );
+        },
+        (error) => {
+          console.error("Login failed (callback):", error);
+          setAuthStatus({ status: 'Error', error: error || 'Login failed.' }); // Set error state
+          setLoginError(error || 'Login failed. Please try again.'); // Display error in form
+        }
+      );
+    } catch (error: any) { // Catch potential synchronous errors
+        console.error("Synchronous error during login call:", error);
+        const errorMsg = error.message || 'An unexpected error occurred during login.';
+        setAuthStatus({ status: 'Error', error: errorMsg });
+        setLoginError(errorMsg);
+    }
+  };
+
+  // Handler for logout action
+  const handleLogout = () => {
+    if (!api) {
+      setLoginError("Logout service unavailable."); // Use loginError state for consistency
+      return;
+    }
+    setLoginError(null); // Clear previous errors
+    setAuthStatus({ status: 'LoggingOut' }); // Set loading state
+    console.log("Attempting logout via API...");
+    try {
+        api.logout(
+            () => {
+                console.log("Logout successful (callback)");
+                // Refresh auth status after successful logout
+                api.getAuthStatus(
+                    (fetchedStatus) => setAuthStatus(fetchedStatus),
+                    (error) => {
+                         console.error('Error refreshing auth status after logout:', error);
+                         // Logout succeeded, but status refresh failed. Set to LoggedOut anyway.
+                         setAuthStatus({ status: 'LoggedOut' });
+                    }
+                  );
+            },
+            (error) => {
+                console.error("Logout failed (callback):", error);
+                // Assume logout failed, revert state potentially
+                // For simplicity, set to error state
+                const errorMsg = error || 'Logout failed.';
+                setAuthStatus({ status: 'Error', error: errorMsg });
+                setLoginError(errorMsg); // Display error
+            }
+        );
+    } catch (error: any) { // Catch potential synchronous errors
+        console.error("Synchronous error during logout call:", error);
+        const errorMsg = error.message || 'An unexpected error occurred during logout.';
+        setAuthStatus({ status: 'Error', error: errorMsg });
+        setLoginError(errorMsg);
+    }
+  };
+
+  // Handler for game actions (install, launch, update)
+  const handleGameAction = (gameId: string, actionString: string) => {
+    const validActions = ['install', 'launch', 'update'];
+    if (!validActions.includes(actionString)) {
+        console.error(`Invalid action string received: ${actionString}`);
+        alert(`Invalid action: ${actionString}`);
+        return;
+    }
+    const action = actionString as 'install' | 'launch' | 'update';
+
+    if (!api) {
+      alert("Action service unavailable.");
+      return;
+    } 
+
+    console.log(`Performing action: ${action} for game: ${gameId}`);
+    try {
+        api.performGameAction(action, gameId,
+            () => {
+                console.log(`${action} action successful (callback) for ${gameId}`);
+                const gameName = games.find(g => g.id === gameId)?.name || gameId; 
+                alert(`${action} initiated for ${gameName}`); 
+
+                // Example: Refresh game list after action
+                // api.getGameList(
+                //     (fetchedGames) => setGames(fetchedGames),
+                //     (error) => console.error('Error refreshing game list after action:', error)
+                // );
+            },
+            (error) => {
+                console.error(`${action} action failed (callback) for ${gameId}:`, error);
+                const gameName = games.find(g => g.id === gameId)?.name || gameId; 
+                alert(`Failed to ${action} ${gameName}: ${error}`); 
+            }
+        );
+    } catch (error: any) { 
+        console.error(`Synchronous error during ${action} call for ${gameId}:`, error);
+        const gameName = games.find(g => g.id === gameId)?.name || gameId; 
+        alert(`An unexpected error occurred while trying to ${action} ${gameName}.`);
+    }
+  };
+
+  const selectedGame = games.find(game => game.id === selectedGameId) || null;
+
+  // --- Render Logic ---
+
+  if (isLoadingGames) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-500 p-6">
-        <p className="text-lg">Select a game from the library</p>
-      </div>
+        <div className="flex items-center justify-center h-screen bg-gray-900 text-white text-lg">
+             Initializing Launcher...
+        </div>
+    );
+  }
+
+  if (apiError) {
+    return (
+       <div className="flex flex-col items-center justify-center h-screen bg-red-900 text-white p-8 text-center">
+           <h2 className="text-2xl font-bold mb-4">Connection Error</h2>
+           <p className="mb-6">{apiError}</p>
+           {/* Optionally add a retry button? */}
+       </div>
     );
   }
 
   return (
-    <div className="p-8 space-y-5"> {/* Increased padding */}
-      <h1 className="text-4xl font-bold text-white mb-2 tracking-tight">{game.name}</h1>
-       <p className="text-sm text-gray-400 mb-4">Version: {game.version || 'N/A'}</p>
-      {game.imageUrl && (
-        <div className="aspect-video w-full rounded-lg shadow-xl overflow-hidden mb-6"> {/* Aspect ratio container */}
-            <img
-              src={game.imageUrl}
-              alt={game.name}
-              className="w-full h-full object-cover bg-gray-700" // Ensure image covers the container
-              onError={(e) => { e.currentTarget.src = 'https://placehold.co/1600x900/4b5563/1f2937?text=Image+Load+Error'; }} // Higher res fallback
-            />
-        </div>
-      )}
-      <p className="text-gray-300 leading-relaxed">{game.description || "No description available."}</p>
-      {/* Removed status from here, it's implied by the action button */}
-      {/* Add more details like developer, publisher, release date etc. */}
-    </div>
-  );
-};
+    <div className="flex flex-col h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-gray-100 font-sans overflow-hidden">
+       {/* Header Area */}
+       <header className="bg-gray-950 shadow-lg p-3 flex justify-between items-center flex-shrink-0 border-b border-gray-700">
+          <h1 className="text-xl font-bold text-purple-400">WindSurf Game Launcher</h1>
+          <span className="text-xs text-gray-500">v{version}</span>
+       </header>
 
-// Action Button Component - Enhanced Styling
-const ActionButton: React.FC<{ game: Game | null; onAction: (gameId: string, action: string) => void }> = ({ game, onAction }) => {
-  if (!game) return (
-      <button
-          className="px-8 py-3 bg-gray-600 text-gray-400 rounded-md font-semibold text-lg shadow-md opacity-50 cursor-not-allowed"
-          disabled
-      >
-          Select Game
-      </button>
-  );
+      {/* Main Content Area (Scrollable if needed) */}
+      <main className="flex-grow flex p-4 space-x-4 overflow-auto">
 
-  let actionText = 'Play';
-  let actionType = 'launch';
-  let baseBgColor = 'bg-green-600';
-  let hoverBgColor = 'hover:bg-green-500';
-  let ringColor = 'focus:ring-green-400';
-  let disabled = false;
-
-  switch (game.status) {
-    case 'NotInstalled':
-      actionText = 'Install';
-      actionType = 'install';
-      baseBgColor = 'bg-blue-600';
-      hoverBgColor = 'hover:bg-blue-500';
-      ringColor = 'focus:ring-blue-400';
-      break;
-    case 'ReadyToPlay':
-      actionText = 'Play';
-      actionType = 'launch';
-      baseBgColor = 'bg-green-600';
-      hoverBgColor = 'hover:bg-green-500';
-      ringColor = 'focus:ring-green-400';
-      break;
-    case 'UpdateRequired':
-      actionText = 'Update';
-      actionType = 'update';
-      baseBgColor = 'bg-yellow-600';
-      hoverBgColor = 'hover:bg-yellow-500';
-      ringColor = 'focus:ring-yellow-400';
-      break;
-    case 'Installing':
-    case 'Downloading':
-    case 'Verifying': // Added verifying state
-      actionText = game.status;
-      actionType = 'cancel';
-      baseBgColor = 'bg-red-600';
-      hoverBgColor = 'hover:bg-red-500';
-      ringColor = 'focus:ring-red-400';
-      break;
-     case 'Launching':
-       actionText = 'Launching...';
-       actionType = 'none';
-       baseBgColor = 'bg-gray-600';
-       hoverBgColor = 'hover:bg-gray-600'; // No hover effect when disabled
-       ringColor = 'focus:ring-gray-500';
-       disabled = true;
-       break;
-     case 'Running':
-       actionText = 'Running';
-       actionType = 'none'; // Or maybe 'Focus' / 'Terminate'?
-       baseBgColor = 'bg-gray-600';
-       hoverBgColor = 'hover:bg-gray-600';
-       ringColor = 'focus:ring-gray-500';
-       disabled = true;
-       break;
-    default:
-      actionText = 'Unknown';
-      actionType = 'none';
-      baseBgColor = 'bg-gray-600';
-       hoverBgColor = 'hover:bg-gray-600';
-       ringColor = 'focus:ring-gray-500';
-      disabled = true;
-  }
-
-  return (
-    <button
-      onClick={() => actionType !== 'none' && onAction(game.id, actionType)}
-      disabled={disabled}
-      className={`px-8 py-3 ${baseBgColor} ${disabled ? '' : hoverBgColor} text-white font-semibold text-lg rounded-md shadow-lg transition duration-200 ease-in-out transform ${disabled ? '' : 'hover:-translate-y-0.5'} focus:outline-none focus:ring-2 ${ringColor} focus:ring-offset-2 focus:ring-offset-gray-800 disabled:opacity-70 disabled:cursor-not-allowed`}
-    >
-      {actionText}
-    </button>
-  );
-};
-
-// Progress Bar Component - Enhanced Styling
-const ProgressBar: React.FC<{ game: Game | null }> = ({ game }) => {
-  const showProgress = game && (game.status === 'Downloading' || game.status === 'Installing' || game.status === 'Verifying') && game.progress !== undefined;
-
-  if (!showProgress) {
-    return <div className="h-6"></div>; // Keep space consistent even when hidden
-  }
-
-  return (
-    <div className="w-full space-y-1">
-        <div className="w-full bg-gray-700 rounded-full h-2 overflow-hidden">
-            <div
-                className="bg-blue-500 h-2 rounded-full transition-all duration-300 ease-linear"
-                style={{ width: `${game.progress}%` }}
-            ></div>
-        </div>
-         <span className="text-xs text-gray-400 font-medium">{game.status} - {game.progress}%</span>
-    </div>
-  );
-};
-
-
-// Main App Component
-const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'library' | 'store'>('library');
-  const [games, setGames] = useState<Game[]>([]);
-  const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-  const [isLoadingGames, setIsLoadingGames] = useState(true);
-  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
-  const [appVersion, setAppVersion] = useState<string>('Loading...');
-
-  // Fetch initial data on mount
-  useEffect(() => {
-    const fetchData = async () => {
-      setIsLoadingGames(true);
-      setAuthStatus(null); // Indicate loading auth status
-      try {
-         const [gameList, authData, versionData] = await Promise.all([
-            mockApi.getGameList(),
-            mockApi.getAuthStatus(),
-            mockApi.getVersion()
-         ]);
-
-        setGames(gameList);
-        setAuthStatus(authData);
-        setAppVersion(versionData.version);
-        // Select the first game by default if list is not empty
-        if (gameList.length > 0 && !selectedGameId) {
-            setSelectedGameId(gameList[0].id);
-        }
-
-      } catch (error) {
-        console.error("Failed to fetch initial data:", error);
-        setAuthStatus({ status: 'Error', error: 'Failed to load initial data' });
-      } finally {
-        setIsLoadingGames(false);
-      }
-    };
-    fetchData();
-
-    // Setup Listener for Game Status Updates from Backend
-    const handleGameStatusUpdate = (update: { game_id: string; status: string; progress?: number; message?: string }) => {
-       console.log("Received game status update from backend:", update);
-       setGames(currentGames =>
-         currentGames.map(game =>
-           game.id === update.game_id
-             ? { ...game, status: update.status as Game['status'], progress: update.progress }
-             : game
-         )
-       );
-     };
-
-     if (window.gameLauncherAPI) {
-        window.gameLauncherAPI.onStatusUpdate = handleGameStatusUpdate;
-        console.log("Game status update listener attached.");
-     } else {
-        console.warn("window.gameLauncherAPI not found. Status updates from backend will not be received.");
-        // --- Simulate backend pushing updates for mock purposes ---
-        const intervalId = setInterval(() => {
-            setGames(currentGames => currentGames.map(g => {
-                if (g.status === 'Downloading' || g.status === 'Installing') {
-                    const newProgress = Math.min((g.progress || 0) + 10, 100);
-                    return {
-                        ...g,
-                        progress: newProgress,
-                        status: newProgress === 100 ? (g.status === 'Downloading' ? 'Verifying' : 'ReadyToPlay') : g.status
-                    };
-                }
-                 if (g.status === 'Verifying') {
-                     // Simulate verification taking a bit
-                     const newProgress = Math.min((g.progress || 0) + 25, 100);
-                      return {
-                        ...g,
-                        progress: newProgress,
-                        status: newProgress === 100 ? 'ReadyToPlay' : g.status
-                    };
-                 }
-                return g;
-            }));
-        }, 1500); // Update progress every 1.5 seconds
-        return () => clearInterval(intervalId); // Cleanup interval
-        // --- End mock simulation ---
-     }
-
-     // Cleanup listener on unmount
-     return () => {
-       if (window.gameLauncherAPI) {
-         window.gameLauncherAPI.onStatusUpdate = undefined;
-          console.log("Game status update listener removed.");
-       }
-     };
-
-  }, []); // Empty dependency array means run once on mount
-
-  const handleLogin = async (user: string, pass: string) => {
-     setAuthStatus({ status: 'LoggingIn' }); // Show loading state
-     const result = await mockApi.login(user, pass);
-     setAuthStatus(result); // Update with result (success or error)
-  };
-
-  const handleLogout = async () => {
-     setAuthStatus({ status: 'LoggingOut', profile: authStatus?.profile }); // Show loading state
-     const result = await mockApi.logout();
-     setAuthStatus(result); // Update with LoggedOut status
-     setSelectedGameId(null); // Clear selection on logout? Optional.
-  };
-
-  const handleGameAction = async (gameId: string, action: string) => {
-     console.log(`Performing action: ${action} for game: ${gameId}`);
-     try {
-       // Optimistic UI update
-       const getNextStatus = (): Game['status'] => {
-            switch(action) {
-                case 'launch': return 'Launching';
-                case 'install': return 'Downloading'; // Starts with download
-                case 'update': return 'Downloading'; // Starts with download
-                case 'cancel': return 'ReadyToPlay'; // Or 'NotInstalled' depending on previous state? Needs logic.
-                default: return games.find(g => g.id === gameId)?.status || 'ReadyToPlay'; // Default to current status
-            }
-       }
-       setGames(currentGames =>
-            currentGames.map(g => g.id === gameId ? { ...g, status: getNextStatus(), progress: action === 'install' || action === 'update' ? 0 : undefined } : g)
-       );
-
-       await mockApi.performGameAction(gameId, action);
-       // Let backend push actual progress/status via listener
-
-     } catch (error: any) {
-       console.error(`Failed to perform action ${action} for game ${gameId}:`, error);
-       // TODO: Revert optimistic UI update & show error message
-       // Example: Refetch game list or specific game status on error
-       alert(`Action failed: ${error.message || 'Unknown error'}`); // Simple alert for now
-       // Revert status (crude example, might need original status)
-        setGames(currentGames =>
-            currentGames.map(g => g.id === gameId ? { ...g, status: 'ReadyToPlay' } : g) // Revert to a known state
-       );
-     }
-   };
-
-  const selectedGame = games.find(game => game.id === selectedGameId) || null;
-
-  return (
-    // Main container - Slightly darker bg, ensure font is applied
-    <div className="flex flex-col bg-gray-950 text-gray-300 min-h-screen font-sans antialiased">
-      {/* Top Bar - Subtle gradient, slightly more padding */}
-      <div className="flex items-center justify-between px-6 py-3 bg-gradient-to-r from-gray-800 to-gray-900 border-b border-gray-700 shadow-lg flex-shrink-0">
-        {/* Tabs - More spacing, clearer active state */}
-        <div className="flex space-x-2">
-          <button
-            onClick={() => setActiveTab('library')}
-            className={`px-4 py-1.5 rounded-md text-sm font-semibold transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 ${
-              activeTab === 'library'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-gray-400 hover:bg-gray-700 hover:text-gray-100'
-            }`}
-          >
-            Library
-          </button>
-          <button
-            onClick={() => setActiveTab('store')}
-            className={`px-4 py-1.5 rounded-md text-sm font-semibold transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 ${
-              activeTab === 'store'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'text-gray-400 hover:bg-gray-700 hover:text-gray-100'
-            }`}
-          >
-            Store
-          </button>
-        </div>
-
-        {/* Auth & Settings Area */}
-        <div className="flex items-center space-x-5">
-           {authStatus === null ? (
-              <span className="text-xs text-gray-500 animate-pulse">Loading user...</span>
-           ) : (
-              <AuthArea
-                 authStatus={authStatus}
-                 onLogin={handleLogin}
-                 onLogout={handleLogout}
+        {/* Left Panel: Game List (fixed width, scrollable) */}
+        <aside className="w-64 flex-shrink-0 bg-gray-900 p-3 rounded-lg shadow-md overflow-y-auto">
+           <h2 className="text-lg font-semibold mb-3 border-b border-gray-700 pb-2 text-purple-300">Library</h2>
+           {games.length > 0 ? (
+             games.map(game => (
+               <GameItem
+                 key={game.id}
+                 game={game}
+                 isSelected={game.id === selectedGameId}
+                 onClick={() => setSelectedGameId(game.id)}
                />
+             ))
+           ) : (
+             <p className="text-gray-500 text-sm text-center mt-4">No games found.</p>
            )}
-          <button className="text-gray-400 hover:text-white transition duration-150 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-gray-900 rounded-full p-1" title="Settings">
-            <SettingsIcon className="w-5 h-5" />
-          </button>
-        </div>
-      </div>
+        </aside>
 
-      {/* Main Content Area */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Panel (Game List) - Slightly wider, more padding */}
-        <div className="w-72 bg-gray-900 border-r border-gray-700 p-5 flex-shrink-0 overflow-y-auto space-y-2">
-          <h2 className="text-xl font-bold mb-4 text-gray-100 tracking-tight">Library</h2>
-          {isLoadingGames ? (
-            <LoadingSpinner />
-          ) : (
-            games.map((game) => (
-              <GameListItem
-                key={game.id}
-                game={game}
-                isSelected={selectedGameId === game.id}
-                onSelect={setSelectedGameId}
-              />
-            ))
-          )}
-        </div>
+        {/* Center Panel: Game Details (flex-grow) */}
+        <section className="flex-grow bg-gray-900 rounded-lg shadow-md overflow-hidden">
+          <GameDetails game={selectedGame} onAction={handleGameAction} />
+        </section>
 
-        {/* Right Panel (Details / Store Content) - Different background */}
-        <div className="flex-1 bg-gray-850 overflow-y-auto"> {/* Slightly lighter than sidebar */}
-          {activeTab === 'library' && (
-            <div className="flex flex-col h-full">
-               <div className="flex-1"> {/* Details take available space */}
-                  <GameDetailsPanel game={selectedGame} />
-               </div>
-               {/* Action Bar - More padding, distinct background */}
-               <div className="p-6 border-t border-gray-700 bg-gradient-to-r from-gray-800 to-gray-900 flex-shrink-0 shadow-inner">
-                  <div className="flex items-center justify-between space-x-6">
-                     {/* Action Button on the left */}
-                     <ActionButton game={selectedGame} onAction={handleGameAction} />
-                     {/* Progress Bar takes remaining space */}
-                     <div className="flex-1 max-w-xs"> {/* Limit width of progress bar */}
-                        <ProgressBar game={selectedGame} />
-                     </div>
-                  </div>
-               </div>
-            </div>
-          )}
-          {activeTab === 'store' && (
-            <div className="p-8">
-              <h1 className="text-3xl font-bold text-white">Store</h1>
-              <p className="text-gray-400 mt-3">Browse and purchase new games.</p>
-              {/* Add store items, categories, etc. here */}
-            </div>
-          )}
-        </div>
-      </div>
+        {/* Right Panel: Auth & Actions (fixed width) */}
+        <section className="w-72 flex-shrink-0 bg-gray-900 p-4 rounded-lg shadow-md flex flex-col space-y-4">
+          <AuthArea
+            authStatus={authStatus}
+            onLogin={handleLogin} 
+            onLogout={handleLogout}
+            loginError={loginError}
+          />
+          {/* Placeholder for other actions/news */}
+          <div className="bg-gray-700 p-3 rounded mt-auto shadow-inner">
+            <h3 className="text-md font-semibold mb-2 text-purple-300">News Feed</h3>
+            <p className="text-sm text-gray-400">Latest game updates and announcements will appear here.</p>
+          </div>
+        </section>
+      </main>
 
        {/* Footer - Subtle */}
        <div className="px-6 py-1.5 bg-gray-950 border-t border-gray-700 text-xs text-gray-500 flex items-center justify-between flex-shrink-0">
-          <span>Status: Ready</span>
-          <span>Version: {appVersion}</span>
+           <span>Status: { api ? 'Ready' : 'Offline' }</span>
+           <span>Version: {version}</span>
        </div>
     </div>
   );
-};
-
-// --- Global types for window object (if needed for backend communication) ---
-declare global {
-  interface Window {
-    gameLauncherAPI?: {
-       getGameListRequest: () => Promise<Game[]>;
-       getAuthStatusRequest: () => Promise<AuthStatus>;
-       loginRequest: (user: string, pass: string) => Promise<AuthStatus>;
-       logoutRequest: () => Promise<AuthStatus>;
-       gameActionRequest: (gameId: string, action: string) => Promise<{ status: string }>;
-       getVersionRequest: () => Promise<{ version: string }>;
-       // Add functions for settings etc.
-       onStatusUpdate?: (update: { game_id: string; status: string; progress?: number; message?: string }) => void;
-    }
-  }
 }
 
 export default App;

@@ -10,6 +10,7 @@
 #include "game_launcher/core/ipc_service.h" // Include for IIPCService
 #include <windows.h> // For HWND
 #include <memory> // For std::unique_ptr and std::shared_ptr
+#include <atomic> // For std::atomic
 
 // Forward declarations
 namespace game_launcher::core {
@@ -24,8 +25,8 @@ namespace cef_integration {
 class LauncherApp : public CefApp,
                     public CefBrowserProcessHandler {
  public:
-  // Constructor: Pass in the necessary IPC service.
-  explicit LauncherApp(std::shared_ptr<game_launcher::core::IIPCService> ipc_service);
+  // Constructor: Allows initialization without IPC service initially (set later).
+  explicit LauncherApp(std::shared_ptr<game_launcher::core::IIPCService> ipc_service = nullptr);
 
   // CefApp methods:
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override;
@@ -45,6 +46,15 @@ class LauncherApp : public CefApp,
   // Method to get the client instance
   CefRefPtr<LauncherClient> GetLauncherClient() const;
 
+  // Method to set the IPC service after initial construction
+  void SetIPCService(std::shared_ptr<game_launcher::core::IIPCService> service);
+
+  // Called when the last browser window is closed.
+  void NotifyShutdown();
+
+  // Check if the application is currently shutting down.
+  bool IsShuttingDown() const;
+
  private:
   // Reference to the core IPC service.
   std::shared_ptr<game_launcher::core::IIPCService> ipc_service_;
@@ -58,6 +68,9 @@ class LauncherApp : public CefApp,
 
   // Instance of the render process handler.
   CefRefPtr<CefRenderProcessHandler> render_process_handler_;
+
+  // Flag to indicate if CEF shutdown has started.
+  std::atomic<bool> is_shutting_down_ = false;
 
   // Include the default reference counting implementation.
   IMPLEMENT_REFCOUNTING(LauncherApp);

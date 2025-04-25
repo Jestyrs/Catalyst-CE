@@ -4,9 +4,9 @@
 #include "include/cef_app.h"
 #include "include/cef_command_line.h"
 #include "include/cef_sandbox_win.h"
+#include "include/views/cef_window.h" // For CefWindowInfo
 #include "include/wrapper/cef_helpers.h"
 #include "include/cef_browser.h" // For CefBrowser, CefBrowserHost
-#include "include/views/cef_window.h" // For CefWindowInfo
 
 #include "game_launcher/cef_integration/launcher_app.h"
 #include "game_launcher/core/user_settings.h" // Factory included here
@@ -18,12 +18,15 @@
 #include "game_launcher/core/core_ipc_service.h" // Required for CreateCoreIPCService
 #include "game_launcher/core/auth_status.h" // Required for AuthStatusToString
 #include "game_launcher/core/app_settings.h" // Required for AppSettings
+#include "game_launcher/core/mock_auth_manager.h" // Include Mock Auth
 
 #include <Windows.h> // Add this include for WinMain types
 #include <shlobj.h> // Required for SHGetKnownFolderPath, FOLDERID_RoamingAppData
 #include <filesystem> // For path manipulation
 #include <string>     // For string manipulation
 #include <curl/curl.h> // Added for libcurl global init/cleanup
+#include <iostream> // For std::cout debugging
+#include <memory> // For std::shared_ptr, std::make_shared, std::unique_ptr
 
 // Forward declare the window procedure
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -60,35 +63,36 @@ void Cleanup(HINSTANCE hInstance) {
 
 #if defined(OS_WIN)
 // Use wWinMain for Unicode compatibility, which is preferred by CEF.
-int APIENTRY wWinMain(HINSTANCE hInstance,
+int wWinMain(HINSTANCE hInstance,
                      HINSTANCE hPrevInstance,
                      LPWSTR    lpCmdLine,
-                     int       nCmdShow) {
-    // --- Logging Initialization (Moved to absolute start) --- 
-    LOG(INFO) << "wWinMain entered.";
-
-    UNREFERENCED_PARAMETER(hPrevInstance);
-    UNREFERENCED_PARAMETER(lpCmdLine);
-
-    g_hInstance = hInstance;
-
-    // --- CEF Mandatory First Step --- 
+                     int       nCmdShow)
+{
+    // --- Early CEF Sub-process Handling ---
     // Structure for passing command-line arguments to CEF.
     CefMainArgs main_args(hInstance);
 
-    // CEF applications have multiple processes. This executes logic for different process types.
-    // Pass the app instance here. If it returns >= 0, it means this is a subprocess and we should exit.
-    LOG(INFO) << "Calling CefExecuteProcess...";
-    int exit_code = CefExecuteProcess(main_args, nullptr, nullptr /* sandbox_info */);
-    LOG(INFO) << "CefExecuteProcess returned: " << exit_code;
+    // Create the CefApp implementation object early. It will be shared across
+    // all processes. The IPC service will be set later only in the main process.
+    CefRefPtr<game_launcher::cef_integration::LauncherApp> app(new game_launcher::cef_integration::LauncherApp(nullptr));
+
+    // CEF applications have multiple processes. This function executes sub-process
+    // logic returns immediately, returning the sub-process exit code.
+    // If this is the main process, it returns -1.
+    int exit_code = CefExecuteProcess(main_args, app.get(), nullptr);
     if (exit_code >= 0) {
-        LOG(ERROR) << "Exiting as CEF subprocess with code: " << exit_code;
+        // The sub-process mode has finished
+        LOG(INFO) << "CEF Sub-process exited with code: " << exit_code;
+        // Subprocesses don't need further initialization or cleanup here.
+        // They might need their own specific cleanup handled via CefApp callbacks.
         return exit_code;
     }
+    // --- End of Early CEF Sub-process Handling ---
 
-    LOG(INFO) << "Continuing as main browser process.";
+    // Continue only if this is the main Browser Process (CefExecuteProcess returned -1)
+    LOG(INFO) << "Starting Main Browser Process Initialization...";
 
-    // --- Single Instance Check (moved after subprocess check, before window creation) ---+
+    // --- Single Instance Check ---
     g_hMutex = CreateMutex(NULL, TRUE, kMutexName);
     if (g_hMutex == NULL || GetLastError() == ERROR_ALREADY_EXISTS) {
         if (g_hMutex) {
@@ -165,21 +169,19 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
         return 1;
     }
 
-    // Create authentication manager
-    auto auth_manager = game_launcher::core::CreateAuthenticationManager(user_settings);
-
-    // Check initial authentication status (replacing non-existent LoadSession)
-    game_launcher::core::AuthStatus initial_auth_status = auth_manager->GetAuthStatus();
-    LOG(INFO) << "Initial Auth Status: " << game_launcher::core::AuthStatusToString(initial_auth_status);
+    // Create Mock Auth Manager (replace with real one later)
+    LOG(INFO) << "Creating MockAuthManager...";
+    auto mock_auth_manager = game_launcher::core::CreateMockAuthManager();
+    LOG(INFO) << "MockAuthManager created.";
 
     // Create game management service
     fs::path exe_dir = GetExecutableDir();
-    fs::path games_json_path = exe_dir / "resources" / "games.json"; 
+    fs::path games_json_path = exe_dir / "resources" / "games.json";
     LOG(INFO) << "Using games definition file path: " << games_json_path.string();
 
     auto game_manager = game_launcher::core::CreateBasicGameManager(
-        games_json_path, 
-        user_settings, 
+        games_json_path,
+        user_settings,
         background_task_manager.get() // Pass the background task manager
     );
     if (!game_manager) {
@@ -189,23 +191,43 @@ int APIENTRY wWinMain(HINSTANCE hInstance,
         return 1;
     }
 
-    // Create core IPC service (bridges core components)
-    auto ipc_service = game_launcher::core::CoreIPCService::CreateCoreIPCService(
-        game_manager,                  // Arg 1: Game Manager (shared_ptr<IGameManagementService>)
-        std::move(auth_manager),       // Arg 2: Auth Manager (unique_ptr<IAuthenticationManager>)
-        user_settings,                 // Arg 3: User Settings (shared_ptr<IUserSettings>)
-        background_task_manager.get() // Arg 4: Background Task Manager (IBackgroundTaskManager*)
-    );
-    if (!ipc_service) {
-        LOG(ERROR) << "Failed to create CoreIPCService.";
-        curl_global_cleanup(); // Cleanup curl
-        Cleanup(hInstance); // Attempt cleanup
+    // Declare the main service pointer first (must be outside try block)
+    std::shared_ptr<game_launcher::core::IIPCService> ipc_service;
+
+    try {
+        LOG(INFO) << "Creating CoreIPCService into temporary unique_ptr...";
+        auto temp_ipc_service = game_launcher::core::CoreIPCService::CreateCoreIPCService(
+            game_manager,           // Pass the created game_manager
+            std::move(mock_auth_manager), // Move ownership of unique_ptr
+            user_settings,          // Pass the created user_settings
+            background_task_manager.get() // Pass the raw pointer as needed
+        );
+        LOG(INFO) << "Temporary CoreIPCService unique_ptr created.";
+
+        if (!temp_ipc_service) {
+            LOG(FATAL) << "CoreIPCService::CreateCoreIPCService returned nullptr unexpectedly.";
+            MessageBox(NULL, L"Core service creation returned null. Exiting.", L"Launcher Error", MB_OK | MB_ICONERROR);
+            return 1;
+        }
+
+        // Move from temporary to the final variable
+        LOG(INFO) << "Moving temporary unique_ptr to ipc_service...";
+        ipc_service = std::shared_ptr<game_launcher::core::IIPCService>(std::move(temp_ipc_service)); // Explicit construction
+        LOG(INFO) << "Moved temporary unique_ptr to ipc_service.";
+
+    } catch (const std::exception& e) {
+        LOG(FATAL) << "Caught std::exception during CoreIPCService creation/assignment: " << e.what();
+        MessageBoxA(NULL, (std::string("Exception during core service init: ") + e.what()).c_str(), "Launcher Error", MB_OK | MB_ICONERROR);
+        return 1;
+    } catch (...) {
+        LOG(FATAL) << "Caught unknown exception during CoreIPCService creation/assignment.";
+        MessageBox(NULL, L"Unknown exception during core service init. Exiting.", L"Launcher Error", MB_OK | MB_ICONERROR);
         return 1;
     }
 
-    // Create LauncherApp instance (NOW that services are created)
-    // Correct way to initialize CefRefPtr
-    CefRefPtr<game_launcher::cef_integration::LauncherApp> app(new game_launcher::cef_integration::LauncherApp(std::move(ipc_service)));
+    // Set the created IPC service in the LauncherApp instance
+    LOG(INFO) << "Setting IPC service in LauncherApp...";
+    app->SetIPCService(ipc_service);
 
     LOG(INFO) << "Proceeding with main window initialization.";
 
@@ -322,7 +344,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
     switch (message) {
     case WM_CLOSE:
         // Attempt to close the browser window gracefully first
-        if (app) { // Ensure app pointer is valid
+        if (app && !app->IsShuttingDown()) { // Ensure app pointer is valid and not shutting down
             CefRefPtr<game_launcher::cef_integration::LauncherClient> client = app->GetLauncherClient();
             if (client) {
                 CefRefPtr<CefBrowser> browser = client->GetBrowser(); // Assumes single browser
@@ -338,63 +360,22 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) 
                  LOG(WARNING) << "WM_CLOSE: LauncherApp found, but no LauncherClient instance.";
             }
         } else {
-             LOG(WARNING) << "WM_CLOSE received, but app pointer is null. Forcing DestroyWindow.";
+             LOG(WARNING) << "WM_CLOSE received, but app pointer is null or shutting down. Forcing DestroyWindow.";
         }
         // Fallback or if browser closing fails for some reason
-        DestroyWindow(hWnd); 
-        return 0; // Indicate message was handled
+        DestroyWindow(hWnd);
+        break;
 
-    case WM_DESTROY: 
-        // This is called after the window is destroyed. Ensure we quit the message loop.
-        LOG(INFO) << "WM_DESTROY received.";
-        // CefQuitMessageLoop(); // Should be called by LauncherClient::OnBeforeClose
-        PostQuitMessage(0); // Ensure the application truly exits
-        if (g_hMutex != NULL) {
-            ReleaseMutex(g_hMutex);
-            CloseHandle(g_hMutex);
-            g_hMutex = NULL;
-        }
-        return 0; // Return 0 for WM_DESTROY
-
-    case WM_SIZE:
-        // Resize the browser window to match the new client area size
-        if (app) {
-            CefRefPtr<game_launcher::cef_integration::LauncherClient> client = app->GetLauncherClient();
-            if (client) {
-                 CefRefPtr<CefBrowser> browser = client->GetBrowser();
-                 if (browser) {
-                     HWND browser_hwnd = browser->GetHost()->GetWindowHandle();
-                     if (browser_hwnd) {
-                         RECT rect;
-                         GetClientRect(hWnd, &rect);
-                         MoveWindow(browser_hwnd, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, TRUE);
-                     }
-                 }
-            }
-        }
-        return 0; // Indicate message was handled
-    
-    case WM_ERASEBKGND:
-        // Prevent flickering by not erasing the background (CEF draws over it)
-        return 1; // Indicate message was handled
-
-    case WM_SETFOCUS:
-        // Pass focus to the browser window
-        if (app) {
-            CefRefPtr<game_launcher::cef_integration::LauncherClient> client = app->GetLauncherClient();
-            if (client) {
-                 CefRefPtr<CefBrowser> browser = client->GetBrowser();
-                 if (browser) {
-                      browser->GetHost()->SetFocus(true);
-                 }
-            }
-        }
-        return 0; // Indicate message was handled
+    case WM_DESTROY:
+        // Post a quit message to the application's message loop
+        PostQuitMessage(0);
+        break;
 
     default:
-        // Let DefWindowProc handle messages we don't process.
+        // Handle any messages we didn't process
         return DefWindowProc(hWnd, message, wParam, lParam);
     }
+    return 0;
 }
 
 #else

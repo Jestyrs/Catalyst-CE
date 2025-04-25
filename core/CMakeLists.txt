@@ -21,6 +21,7 @@ set(CMAKE_CXX_EXTENSIONS OFF) # Ensure standard conformance, disable GNU extensi
 set(CORE_SOURCES
     src/user_settings.cpp
     src/core_ipc_service.cpp            # Added from game_launcher_core
+    src/mock_auth_manager.cpp           # Added Mock Auth Manager
     src/json_user_settings.cpp
     src/background_task_manager.cpp
     src/authentication_manager.cpp # Add the new source file

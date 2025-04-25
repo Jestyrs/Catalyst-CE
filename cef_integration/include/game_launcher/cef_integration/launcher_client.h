@@ -8,9 +8,13 @@
 #include "cef_context_menu_handler.h" // Context menu handler (Reverted)
 #include "cef_load_handler.h" // Load handler (Reverted)
 #include "game_launcher/core/ipc_service.h" // Use the interface
+#include "cef_render_process_handler.h" // Include for Render Process Handler
 #include "launcher_message_router_handler.h"
 #include <memory> // For std::unique_ptr
 #include <list> // For std::list
+
+// Forward declare LauncherApp
+namespace game_launcher { namespace cef_integration { class LauncherApp; } }
 
 namespace game_launcher::cef_integration {
 
@@ -21,8 +25,9 @@ class LauncherClient : public CefClient,
                        public CefLoadHandler, // Add CefLoadHandler
                        public CefContextMenuHandler { // Add Context Menu Handler
  public:
-    // Constructor now takes the IPC service shared pointer
-    explicit LauncherClient(std::shared_ptr<core::IIPCService> ipc_service);
+    // Constructor now takes the IPC service shared pointer and LauncherApp reference
+    explicit LauncherClient(std::shared_ptr<core::IIPCService> ipc_service, 
+                            CefRefPtr<LauncherApp> launcher_app);
     ~LauncherClient() override;
 
     // --- CefClient overrides --- 
@@ -87,6 +92,9 @@ class LauncherClient : public CefClient,
 
     // Reference to the core IPC service (dependency injection)
     std::shared_ptr<core::IIPCService> ipc_service_; // <<< Add member variable
+
+    // Reference back to the main application instance.
+    CefRefPtr<LauncherApp> launcher_app_; // Store LauncherApp reference
 
     // The single browser instance for this client.
     // Assuming only one browser per client instance in this simple app.

@@ -1,20 +1,5 @@
-[
-  {
-    "id": "game001",
-    "name": "Awesome Adventures",
-    "executable_path": "C:/Games/AwesomeAdventures/AwesomeAdventures.exe",
-    "icon": "path/to/icon1.png" 
-  },
-  {
-    "id": "game002",
-    "name": "Space Explorers Deluxe",
-    "executable_path": "C:/Program Files/SpaceExplorers/sx.exe",
-    "icon": "path/to/icon2.ico"
-  },
-  {
-    "id": "invalid_game",
-    "name": "Notepad Test",
-    "executable_path": "notepad.exe",
-    "icon": ""
-  }
-]
+{
+  "games": [
+    
+  ]
+}

@@ -8,6 +8,7 @@ add_library(cef_integration STATIC # Or SHARED
     src/launcher_client.cpp
     src/launcher_app.cpp
     src/launcher_render_process_handler.cpp
+    src/game_launcher_api_handler.cpp # Added V8 API handler
     src/cef_json_utils.cpp # Added source
 )
 

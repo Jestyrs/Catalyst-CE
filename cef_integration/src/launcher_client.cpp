@@ -8,6 +8,7 @@
 #include "cef_app.h" // For CefQuitMessageLoop
 #include "cef_browser.h" // For CefBrowser
 #include "cef_menu_model.h" // For CefMenuModel
+#include "game_launcher/cef_integration/launcher_app.h"
 
 namespace game_launcher::cef_integration {
 
@@ -16,9 +17,12 @@ namespace {
     const int COMMAND_ID_SHOW_DEVTOOLS = MENU_ID_USER_FIRST + 1;
 } // namespace
 
-// Constructor: Takes the IPC service shared pointer and initializes the router.
-LauncherClient::LauncherClient(std::shared_ptr<core::IIPCService> ipc_service)
-    : ipc_service_(std::move(ipc_service)), message_router_(CefMessageRouterBrowserSide::Create(CefMessageRouterConfig())) { 
+// Constructor: Takes the IPC service and LauncherApp reference, initializes the router.
+LauncherClient::LauncherClient(std::shared_ptr<core::IIPCService> ipc_service,
+                               CefRefPtr<LauncherApp> launcher_app)
+    : ipc_service_(std::move(ipc_service)),
+      launcher_app_(launcher_app), // Store the LauncherApp reference
+      message_router_(CefMessageRouterBrowserSide::Create(CefMessageRouterConfig())) { 
     LOG(INFO) << "LauncherClient created.";
 
     // Message handler will be created and added in OnAfterCreated
@@ -105,6 +109,10 @@ void LauncherClient::OnBeforeClose(CefRefPtr<CefBrowser> browser) {
     // If this is the last browser window, quit the CEF message loop.
     if (browser_count_ == 0) {
         LOG(INFO) << "Last browser closed. Quitting message loop.";
+        // Notify the main application that shutdown is starting
+        if (launcher_app_) {
+            launcher_app_->NotifyShutdown();
+        }
         CefQuitMessageLoop();
     }
 }
