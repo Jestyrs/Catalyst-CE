@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import './index.css'; // Ensure Tailwind is imported
 
 // --- Component Interfaces ---
@@ -26,12 +26,12 @@ type AuthStatus =
 
 // Define the API structure for type safety (ensure this matches your actual API)
 interface GameLauncherAPI {
-  getGameList: (onSuccess: (games: Game[]) => void, onFailure: (error: string) => void) => void;
-  getAuthStatus: (onSuccess: (status: AuthStatus) => void, onFailure: (error: string) => void) => void;
-  getVersion: (onSuccess: (version: string) => void, onFailure: (error: string) => void) => void;
-  performGameAction: (action: 'install' | 'launch' | 'update', gameId: string, onSuccess: () => void, onFailure: (error: string) => void) => void;
-  login: (onSuccess: () => void, onFailure: (error: string) => void) => void;
-  logout: (onSuccess: () => void, onFailure: (error: string) => void) => void;
+  getGameList: (onSuccess: (games: Game[]) => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
+  getAuthStatus: (onSuccess: (status: AuthStatus) => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
+  getVersion: (onSuccess: (version: string) => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
+  performGameAction: (action: 'install' | 'launch' | 'update', gameId: string, onSuccess: () => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
+  login: (onSuccess: () => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
+  logout: (onSuccess: () => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
   // Add other methods as needed
 }
 
@@ -176,56 +176,16 @@ function App() {
   const [api, setApi] = useState<GameLauncherAPI | null>(null);
   const [apiError, setApiError] = useState<string | null>(null); // State for API connection errors
 
-  // Fetch initial data on mount
+  // --- API Initialization ---
   useEffect(() => {
     const checkForApi = async () => {
       // Give CEF potentially a bit more time
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 1500)); // Wait for potential injection
 
       if (window.gameLauncherAPI) {
-        console.log("Real API found. Using it for initial fetch.");
+        console.log("Real API found. Setting base API state.");
         const resolvedApi = window.gameLauncherAPI;
-        setApi(resolvedApi); // Set the resolved API
-
-        try {
-          // Fetch initial data using callbacks
-          resolvedApi.getGameList(
-            (fetchedGames) => {
-              setGames(fetchedGames);
-              // Select first game if list isn't empty and none is selected
-              if (fetchedGames.length > 0 && !selectedGameId) {
-                setSelectedGameId(fetchedGames[0].id);
-              }
-            },
-            (error) => {
-              console.error('Error getting game list:', error);
-              setApiError(`Failed to load game list: ${error}`); // Set API error state
-            }
-          );
-
-          resolvedApi.getAuthStatus(
-            (fetchedStatus) => setAuthStatus(fetchedStatus),
-            (error) => {
-              console.error('Error getting auth status:', error);
-              // Don't necessarily block the UI for auth error, just log it
-            }
-          );
-
-          resolvedApi.getVersion(
-            (fetchedVersion) => setVersion(fetchedVersion),
-            (error) => {
-              console.error('Error getting version:', error);
-              setVersion('Error'); // Indicate version fetch failed
-            }
-          );
-
-        } catch (error) {
-          // This catch is unlikely to trigger if API calls use callbacks properly,
-          // but kept for safety.
-          console.error("Unexpected synchronous error during initial data fetch:", error);
-          setApiError('An unexpected error occurred while fetching initial data.');
-        }
-
+        setApi(resolvedApi); // Set the base API, triggers apiWrapper creation
       } else {
         console.error("CRITICAL: window.gameLauncherAPI not found after delay!");
         setApiError("Failed to connect to the launcher backend. Please restart the launcher.");
@@ -245,6 +205,161 @@ function App() {
 
   }, []); // Empty dependency array ensures this runs once on mount
 
+  // Wrapper for the injected API to handle response parsing
+  const apiWrapper: GameLauncherAPI | undefined = useMemo(() => {
+    if (!api) return undefined;
+
+    console.log("Real API found. Wrapping it to parse responses.");
+
+    // Define the wrapped API methods
+    return {
+      getGameList: (onSuccess, onFailure) => {
+        window.cefQuery?.({
+          request: 'getGameListRequest:{}',
+          onSuccess: (responseString) => { // CEF success gives a string
+            try {
+              const parsedResponse = JSON.parse(responseString); // Parse it
+              onSuccess(parsedResponse); // Call component's callback with parsed data
+            } catch (e) {
+              console.error("Failed to parse getGameList response:", e, "Raw:", responseString);
+              onFailure(999, "Failed to parse response");
+            }
+          },
+          onFailure: onFailure, // Pass failure callback directly
+        });
+      },
+      getAuthStatus: (onSuccess, onFailure) => {
+        window.cefQuery?.({
+          request: 'getAuthStatusRequest:{}',
+          onSuccess: (responseString) => {
+            try {
+              const parsedResponse = JSON.parse(responseString);
+              onSuccess(parsedResponse);
+            } catch (e) {
+              console.error("Failed to parse getAuthStatus response:", e, "Raw:", responseString);
+              onFailure(999, "Failed to parse response");
+            }
+          },
+          onFailure: onFailure,
+        });
+      },
+      getVersion: (onSuccess, onFailure) => {
+         window.cefQuery?.({
+          request: 'getVersionRequest:{}',
+          onSuccess: (responseString) => {
+            try {
+              const parsedResponse = JSON.parse(responseString);
+              // Assuming the response is like { version: "x.y.z" }
+              if (typeof parsedResponse === 'object' && parsedResponse !== null && 'version' in parsedResponse) {
+                onSuccess(parsedResponse.version); // Pass the actual version string
+              } else {
+                 console.error("Failed to parse version from response:", parsedResponse);
+                 onFailure(998, "Invalid version format");
+              }
+            } catch (e) {
+              console.error("Failed to parse getVersion response:", e, "Raw:", responseString);
+              onFailure(999, "Failed to parse response");
+            }
+          },
+          onFailure: onFailure,
+        });
+      },
+       performGameAction: (action, gameId, onSuccess, onFailure) => {
+         window.cefQuery?.({
+          request: `performGameActionRequest:${JSON.stringify({ action, gameId })}`, // Include payload
+          onSuccess: onSuccess, // Assume success is just confirmation (no data)
+          onFailure: onFailure,
+        });
+      },
+       login: (onSuccess, onFailure) => {
+         window.cefQuery?.({
+          request: 'loginRequest:{}', // No payload needed usually
+          onSuccess: onSuccess, // TODO: Check if login returns profile data that needs parsing
+          onFailure: onFailure,
+        });
+      },
+       logout: (onSuccess, onFailure) => {
+         window.cefQuery?.({
+          request: 'logoutRequest:{}',
+          onSuccess: onSuccess, // Assume success is confirmation
+          onFailure: onFailure,
+        });
+      },
+    };
+  }, [api]); // Re-create wrapper if the underlying api object changes (e.g., on injection)
+
+  // --- Initial Data Fetching (uses the wrapper) ---
+  useEffect(() => {
+    // Only run this effect if the apiWrapper is ready
+    if (apiWrapper) {
+      console.log("API Wrapper ready. Fetching initial data...");
+      setIsLoadingGames(true); // Set loading true before fetch
+
+      try {
+        // Fetch Game List using the wrapper
+        apiWrapper.getGameList(
+          (fetchedGames) => {
+             if (Array.isArray(fetchedGames)) {
+               setGames(fetchedGames);
+               // Select first game if list isn't empty and none is selected
+               if (fetchedGames.length > 0 && !selectedGameId) {
+                 setSelectedGameId(fetchedGames[0].id);
+               }
+             } else {
+               console.error('[Initial Fetch] ERROR: Fetched game data is not an array!', fetchedGames);
+               setApiError('Received invalid game data format from backend.');
+               setGames([]); // Reset to empty array on error
+             }
+          },
+          (errCode, errMsg) => {
+            console.error("Failed to fetch initial game list:", errCode, errMsg);
+            setApiError(`Failed to load games: ${errMsg} (${errCode})`);
+            setGames([]); // Ensure games is empty on error
+          }
+        );
+
+        // Fetch Auth Status using the wrapper
+        apiWrapper.getAuthStatus(
+          (status) => {
+            console.log("[Initial Fetch] Auth Status Success:", status);
+            setAuthStatus(status);
+          },
+          (errCode, errMsg) => {
+            console.error("Failed to fetch initial auth status:", errCode, errMsg);
+            setAuthStatus({ status: 'Error', error: `Failed to get auth status: ${errMsg}` });
+          }
+        );
+
+        // Fetch Version using the wrapper
+        apiWrapper.getVersion(
+          (v) => {
+            console.log("[Initial Fetch] Version Success:", v);
+            setVersion(v);
+          },
+          (errCode, errMsg) => {
+            console.error("Failed to fetch version:", errCode, errMsg);
+            setVersion('Error');
+          }
+        );
+
+      } catch (error: any) {
+        console.error("[Initial Fetch] Synchronous error during initial data fetch:", error);
+        setApiError('An unexpected error occurred while fetching initial data.');
+        setGames([]);
+        setAuthStatus({ status: 'Error', error: 'API Fetch Error' });
+        setVersion('Error');
+      } finally {
+        // Set loading false after all initial fetches are attempted
+        setIsLoadingGames(false);
+      }
+    } else if (api === null && !isLoadingGames) {
+       // This handles the case where the initial API check finished and found nothing
+       // We only set loading false here if it wasn't already set by the apiWrapper block
+       setIsLoadingGames(false);
+    }
+
+  }, [apiWrapper]); // This effect runs when apiWrapper becomes available/changes
+
   // Handler for login action
   const handleLogin = () => { 
     if (!api) {
@@ -262,17 +377,17 @@ function App() {
           // Refresh auth status after successful login
           api.getAuthStatus(
             (fetchedStatus) => setAuthStatus(fetchedStatus),
-            (error) => {
-                console.error('Error refreshing auth status after login:', error);
-                // Keep the user logged in visually, but maybe show a transient error
-                // setLoginError('Failed to refresh status after login.');
+            (authErrorCode, authErrorMsg) => {
+              console.error("Failed to refresh auth status after login:", authErrorCode, authErrorMsg);
+              setAuthStatus({ status: 'Error', error: `Login successful, but failed to refresh status: ${authErrorMsg}` });
             }
           );
         },
-        (error) => {
-          console.error("Login failed (callback):", error);
-          setAuthStatus({ status: 'Error', error: error || 'Login failed.' }); // Set error state
-          setLoginError(error || 'Login failed. Please try again.'); // Display error in form
+        (errorCode, errorMessage) => {
+          console.error("Login failed (callback):", errorCode, errorMessage);
+          const errorText = errorMessage || 'Login failed.';
+          setAuthStatus({ status: 'Error', error: errorText }); // Use errorMessage string
+          setLoginError(errorText); // Use errorMessage string
         }
       );
     } catch (error: any) { // Catch potential synchronous errors
@@ -299,20 +414,17 @@ function App() {
                 // Refresh auth status after successful logout
                 api.getAuthStatus(
                     (fetchedStatus) => setAuthStatus(fetchedStatus),
-                    (error) => {
-                         console.error('Error refreshing auth status after logout:', error);
-                         // Logout succeeded, but status refresh failed. Set to LoggedOut anyway.
-                         setAuthStatus({ status: 'LoggedOut' });
+                    (authErrorCode, authErrorMsg) => {
+                      console.error("Failed to refresh auth status after logout:", authErrorCode, authErrorMsg);
+                      setAuthStatus({ status: 'Error', error: `Logout successful, but failed to refresh status: ${authErrorMsg}` });
                     }
                   );
             },
-            (error) => {
-                console.error("Logout failed (callback):", error);
-                // Assume logout failed, revert state potentially
-                // For simplicity, set to error state
-                const errorMsg = error || 'Logout failed.';
-                setAuthStatus({ status: 'Error', error: errorMsg });
-                setLoginError(errorMsg); // Display error
+            (errorCode, errorMessage) => {
+                console.error("Logout failed (callback):", errorCode, errorMessage);
+                const errorText = errorMessage || 'Logout failed.';
+                setAuthStatus({ status: 'Error', error: errorText }); // Use errorMessage string
+                setLoginError(errorText); // Use errorMessage string
             }
         );
     } catch (error: any) { // Catch potential synchronous errors
@@ -371,48 +483,48 @@ function App() {
 
   if (isLoadingGames) {
     return (
-        <div className="flex items-center justify-center h-screen bg-gray-900 text-white text-lg">
-             Initializing Launcher...
-        </div>
+      <div className="flex items-center justify-center h-screen bg-gray-900 text-white text-lg">
+        Initializing Launcher...
+      </div>
     );
   }
 
   if (apiError) {
     return (
-       <div className="flex flex-col items-center justify-center h-screen bg-red-900 text-white p-8 text-center">
-           <h2 className="text-2xl font-bold mb-4">Connection Error</h2>
-           <p className="mb-6">{apiError}</p>
-           {/* Optionally add a retry button? */}
-       </div>
+      <div className="flex flex-col items-center justify-center h-screen bg-red-900 text-white p-8 text-center">
+        <h2 className="text-2xl font-bold mb-4">Connection Error</h2>
+        <p className="mb-6">{apiError}</p>
+        {/* Optionally add a retry button? */}
+      </div>
     );
   }
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-gray-100 font-sans overflow-hidden">
-       {/* Header Area */}
-       <header className="bg-gray-950 shadow-lg p-3 flex justify-between items-center flex-shrink-0 border-b border-gray-700">
-          <h1 className="text-xl font-bold text-purple-400">WindSurf Game Launcher</h1>
-          <span className="text-xs text-gray-500">v{version}</span>
-       </header>
+      {/* Header Area */}
+      <header className="bg-gray-950 shadow-lg p-3 flex justify-between items-center flex-shrink-0 border-b border-gray-700">
+        <h1 className="text-xl font-bold text-purple-400">WindSurf Game Launcher</h1>
+        <span className="text-xs text-gray-500">v{version}</span>
+      </header>
 
       {/* Main Content Area (Scrollable if needed) */}
       <main className="flex-grow flex p-4 space-x-4 overflow-auto">
 
         {/* Left Panel: Game List (fixed width, scrollable) */}
         <aside className="w-64 flex-shrink-0 bg-gray-900 p-3 rounded-lg shadow-md overflow-y-auto">
-           <h2 className="text-lg font-semibold mb-3 border-b border-gray-700 pb-2 text-purple-300">Library</h2>
-           {games.length > 0 ? (
-             games.map(game => (
-               <GameItem
-                 key={game.id}
-                 game={game}
-                 isSelected={game.id === selectedGameId}
-                 onClick={() => setSelectedGameId(game.id)}
-               />
-             ))
-           ) : (
-             <p className="text-gray-500 text-sm text-center mt-4">No games found.</p>
-           )}
+          <h2 className="text-lg font-semibold mb-3 border-b border-gray-700 pb-2 text-purple-300">Library</h2>
+          {games.length > 0 ? (
+            games.map(game => (
+              <GameItem
+                key={game.id}
+                game={game}
+                isSelected={game.id === selectedGameId}
+                onClick={() => setSelectedGameId(game.id)}
+              />
+            ))
+          ) : (
+            <p className="text-gray-500 text-sm text-center mt-4">No games found.</p>
+          )}
         </aside>
 
         {/* Center Panel: Game Details (flex-grow) */}
@@ -436,11 +548,11 @@ function App() {
         </section>
       </main>
 
-       {/* Footer - Subtle */}
-       <div className="px-6 py-1.5 bg-gray-950 border-t border-gray-700 text-xs text-gray-500 flex items-center justify-between flex-shrink-0">
-           <span>Status: { api ? 'Ready' : 'Offline' }</span>
-           <span>Version: {version}</span>
-       </div>
+      {/* Footer - Subtle */}
+      <div className="px-6 py-1.5 bg-gray-950 border-t border-gray-700 text-xs text-gray-500 flex items-center justify-between flex-shrink-0">
+        <span>Status: {api ? 'Ready' : 'Offline' }</span>
+        <span>Version: {version}</span>
+      </div>
     </div>
   );
 }

@@ -54,11 +54,9 @@ void SendJsonResponse(CefRefPtr<CefMessageRouterBrowserSide::Callback> callback,
 // Helper function to send an error JSON response adhering closer to JSON-RPC style
 void SendErrorResponse(CefRefPtr<CefMessageRouterBrowserSide::Callback> callback, const std::string& error_message, int error_code = ERR_INTERNAL_ERROR) {
      if (callback) {
-        nlohmann::json error_response;
-        error_response["error"]["code"] = error_code;
-        error_response["error"]["message"] = error_message;
-        // Send the JSON string representation of the error object in the failure message
-        callback->Failure(error_code, error_response.dump());
+        // Send only the error code and the plain error message string.
+        // This matches the typical expectation of JS onFailure(errorMessage) callbacks.
+        callback->Failure(error_code, error_message);
      }
 }
 

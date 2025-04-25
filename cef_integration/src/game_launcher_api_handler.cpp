@@ -24,26 +24,32 @@ void GameLauncherApiHandler::ExecuteCefQuery(CefRefPtr<CefV8Context> context,
     CefRefPtr<CefV8Value> cefQuery = global->GetValue("cefQuery");
 
     if (cefQuery.get() && cefQuery->IsFunction()) {
+        // --- MODIFIED: Format request string as NameRequest:Payload ---
+        // Construct the request string expected by the browser handler (e.g., "getGameListRequest:{}")
+        std::string browser_request_string = request + "Request:"; // Append suffix and colon
+        // Send an empty JSON object '{}' for requests without a payload to avoid browser-side parse errors.
+        browser_request_string += "{}";
+
+        // --- MODIFIED: Construct a SINGLE argument object for cefQuery --- 
+        CefRefPtr<CefV8Value> queryArgObject = CefV8Value::CreateObject(nullptr, nullptr);
+
+        // Set the 'request' property (string)
+        queryArgObject->SetValue("request", CefV8Value::CreateString(browser_request_string), V8_PROPERTY_ATTRIBUTE_NONE);
+
+        // Set the 'persistent' property (boolean, assumed false for now)
+        queryArgObject->SetValue("persistent", CefV8Value::CreateBool(false), V8_PROPERTY_ATTRIBUTE_NONE);
+
+        // Set the 'onSuccess' property (function)
+        queryArgObject->SetValue("onSuccess", arguments[0], V8_PROPERTY_ATTRIBUTE_NONE); 
+
+        // Set the 'onFailure' property (function)
+        queryArgObject->SetValue("onFailure", arguments[1], V8_PROPERTY_ATTRIBUTE_NONE);
+
+        // Create the argument list containing ONLY the single object
         CefV8ValueList queryArgs;
+        queryArgs.push_back(queryArgObject);
 
-        // 1. The request object
-        CefRefPtr<CefV8Value> requestObj = CefV8Value::CreateObject(nullptr, nullptr);
-        requestObj->SetValue("request", CefV8Value::CreateString(request), V8_PROPERTY_ATTRIBUTE_NONE);
-        // For now, assume requests are not persistent
-        requestObj->SetValue("persistent", CefV8Value::CreateBool(false), V8_PROPERTY_ATTRIBUTE_NONE);
-
-        // TODO: Add actual request data/payload if needed based on 'request' and 'arguments'
-        // Example: if (request == "someFuncWithArgs") { ... }
-
-        queryArgs.push_back(requestObj);
-
-        // 2. Success Callback (Required)
-        queryArgs.push_back(arguments[0]);
-
-        // 3. Failure Callback (Required)
-        queryArgs.push_back(arguments[1]);
-
-        // Execute cefQuery using the 3-argument version
+        // Execute cefQuery using the modified argument list
         // The second argument is the 'this' object for the JS function call.
         // Since cefQuery is likely a global function (window.cefQuery), use 'global'.
         CefRefPtr<CefV8Value> queryRetval = cefQuery->ExecuteFunctionWithContext(context, global, queryArgs);
@@ -94,7 +100,7 @@ bool GameLauncherApiHandler::Execute(const CefString& name,
         functionName == "getAuthStatus" || 
         functionName == "getVersion") 
     {
-        // These functions simply pass the name as the request string
+        // These functions simply pass the name as the request string (to be formatted in ExecuteCefQuery)
         // We expect arguments[0] = successCallback, arguments[1] = failureCallback
         ExecuteCefQuery(context, functionName, arguments);
         // Return true because the call was handled (async response pending)
