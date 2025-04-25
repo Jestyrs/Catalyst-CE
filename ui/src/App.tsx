@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import './index.css'; // Ensure Tailwind is imported
 
+// Import layout components
+import Layout from './components/Layout';
+import TopBar from './components/TopBar';
+import LeftSidebar from './components/LeftSidebar';
+import RightSidebar from './components/RightSidebar';
+import MainContentArea from './components/MainContentArea';
+
 // --- Component Interfaces ---
 interface Game {
   id: string;
@@ -45,7 +52,6 @@ declare global {
 }
 
 // --- Child Components ---
-
 // Game Item Component
 const GameItem: React.FC<{ game: Game; isSelected: boolean; onClick: () => void }> = React.memo(({ game, isSelected, onClick }) => {
   return (
@@ -107,12 +113,7 @@ const GameDetails: React.FC<{ game: Game | null; onAction: (gameId: string, acti
 };
 
 // Authentication Area Component
-const AuthArea: React.FC<{ 
-  authStatus: AuthStatus | null;
-  onLogin: () => void; 
-  onLogout: () => void;
-  loginError: string | null;
-}> = ({ authStatus, onLogin, onLogout, loginError }) => {
+const AuthArea: React.FC<{ authStatus: AuthStatus | null; onLogin: () => void; onLogout: () => void; loginError: string | null }> = ({ authStatus, onLogin, onLogout, loginError }) => {
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -124,7 +125,7 @@ const AuthArea: React.FC<{
       await onLogin(); // Call the parent handler
       // Parent component will update state based on login result
       if (authStatus?.status !== 'Error' && authStatus?.status !== 'LoggingIn') {
-         setIsLoading(false);
+        setIsLoading(false);
       }
     } catch (error) {
       // Error should be handled and displayed via loginError prop by parent
@@ -169,14 +170,15 @@ const AuthArea: React.FC<{
 function App() {
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-  const [isLoadingGames, setIsLoadingGames] = useState(true); // Changed to true initially
+  const [isLoadingGames, setIsLoadingGames] = useState(true);
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
-  const [version, setVersion] = useState<string>('N/A'); // Default to N/A
+  const [version, setVersion] = useState<string>('N/A');
   const [loginError, setLoginError] = useState<string | null>(null);
   const [api, setApi] = useState<GameLauncherAPI | null>(null);
-  const [apiError, setApiError] = useState<string | null>(null); // State for API connection errors
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<string>('Games');
 
-  // --- API Initialization ---
+  // --- API Initialization & Data Fetching Effects ---
   useEffect(() => {
     const checkForApi = async () => {
       // Give CEF potentially a bit more time
@@ -244,7 +246,7 @@ function App() {
         });
       },
       getVersion: (onSuccess, onFailure) => {
-         window.cefQuery?.({
+        window.cefQuery?.({
           request: 'getVersionRequest:{}',
           onSuccess: (responseString) => {
             try {
@@ -253,8 +255,8 @@ function App() {
               if (typeof parsedResponse === 'object' && parsedResponse !== null && 'version' in parsedResponse) {
                 onSuccess(parsedResponse.version); // Pass the actual version string
               } else {
-                 console.error("Failed to parse version from response:", parsedResponse);
-                 onFailure(998, "Invalid version format");
+                console.error("Failed to parse version from response:", parsedResponse);
+                onFailure(998, "Invalid version format");
               }
             } catch (e) {
               console.error("Failed to parse getVersion response:", e, "Raw:", responseString);
@@ -264,22 +266,22 @@ function App() {
           onFailure: onFailure,
         });
       },
-       performGameAction: (action, gameId, onSuccess, onFailure) => {
-         window.cefQuery?.({
+      performGameAction: (action, gameId, onSuccess, onFailure) => {
+        window.cefQuery?.({
           request: `performGameActionRequest:${JSON.stringify({ action, gameId })}`, // Include payload
           onSuccess: onSuccess, // Assume success is just confirmation (no data)
           onFailure: onFailure,
         });
       },
-       login: (onSuccess, onFailure) => {
-         window.cefQuery?.({
+      login: (onSuccess, onFailure) => {
+        window.cefQuery?.({
           request: 'loginRequest:{}', // No payload needed usually
           onSuccess: onSuccess, // TODO: Check if login returns profile data that needs parsing
           onFailure: onFailure,
         });
       },
-       logout: (onSuccess, onFailure) => {
-         window.cefQuery?.({
+      logout: (onSuccess, onFailure) => {
+        window.cefQuery?.({
           request: 'logoutRequest:{}',
           onSuccess: onSuccess, // Assume success is confirmation
           onFailure: onFailure,
@@ -299,17 +301,17 @@ function App() {
         // Fetch Game List using the wrapper
         apiWrapper.getGameList(
           (fetchedGames) => {
-             if (Array.isArray(fetchedGames)) {
-               setGames(fetchedGames);
-               // Select first game if list isn't empty and none is selected
-               if (fetchedGames.length > 0 && !selectedGameId) {
-                 setSelectedGameId(fetchedGames[0].id);
-               }
-             } else {
-               console.error('[Initial Fetch] ERROR: Fetched game data is not an array!', fetchedGames);
-               setApiError('Received invalid game data format from backend.');
-               setGames([]); // Reset to empty array on error
-             }
+            if (Array.isArray(fetchedGames)) {
+              setGames(fetchedGames);
+              // Select first game if list isn't empty and none is selected
+              if (fetchedGames.length > 0 && !selectedGameId) {
+                setSelectedGameId(fetchedGames[0].id);
+              }
+            } else {
+              console.error('[Initial Fetch] ERROR: Fetched game data is not an array!', fetchedGames);
+              setApiError('Received invalid game data format from backend.');
+              setGames([]); // Reset to empty array on error
+            }
           },
           (errCode, errMsg) => {
             console.error("Failed to fetch initial game list:", errCode, errMsg);
@@ -353,18 +355,18 @@ function App() {
         setIsLoadingGames(false);
       }
     } else if (api === null && !isLoadingGames) {
-       // This handles the case where the initial API check finished and found nothing
-       // We only set loading false here if it wasn't already set by the apiWrapper block
-       setIsLoadingGames(false);
+      // This handles the case where the initial API check finished and found nothing
+      // We only set loading false here if it wasn't already set by the apiWrapper block
+      setIsLoadingGames(false);
     }
 
   }, [apiWrapper]); // This effect runs when apiWrapper becomes available/changes
 
   // Handler for login action
-  const handleLogin = () => { 
+  const handleLogin = () => {
     if (!api) {
-       setLoginError("Login service unavailable.");
-       return;
+      setLoginError("Login service unavailable.");
+      return;
     }
     setLoginError(null); // Clear previous errors
     setAuthStatus({ status: 'LoggingIn' }); // Set loading state
@@ -391,10 +393,10 @@ function App() {
         }
       );
     } catch (error: any) { // Catch potential synchronous errors
-        console.error("Synchronous error during login call:", error);
-        const errorMsg = error.message || 'An unexpected error occurred during login.';
-        setAuthStatus({ status: 'Error', error: errorMsg });
-        setLoginError(errorMsg);
+      console.error("Synchronous error during login call:", error);
+      const errorMsg = error.message || 'An unexpected error occurred during login.';
+      setAuthStatus({ status: 'Error', error: errorMsg });
+      setLoginError(errorMsg);
     }
   };
 
@@ -408,30 +410,30 @@ function App() {
     setAuthStatus({ status: 'LoggingOut' }); // Set loading state
     console.log("Attempting logout via API...");
     try {
-        api.logout(
-            () => {
-                console.log("Logout successful (callback)");
-                // Refresh auth status after successful logout
-                api.getAuthStatus(
-                    (fetchedStatus) => setAuthStatus(fetchedStatus),
-                    (authErrorCode, authErrorMsg) => {
-                      console.error("Failed to refresh auth status after logout:", authErrorCode, authErrorMsg);
-                      setAuthStatus({ status: 'Error', error: `Logout successful, but failed to refresh status: ${authErrorMsg}` });
-                    }
-                  );
-            },
-            (errorCode, errorMessage) => {
-                console.error("Logout failed (callback):", errorCode, errorMessage);
-                const errorText = errorMessage || 'Logout failed.';
-                setAuthStatus({ status: 'Error', error: errorText }); // Use errorMessage string
-                setLoginError(errorText); // Use errorMessage string
+      api.logout(
+        () => {
+          console.log("Logout successful (callback)");
+          // Refresh auth status after successful logout
+          api.getAuthStatus(
+            (fetchedStatus) => setAuthStatus(fetchedStatus),
+            (authErrorCode, authErrorMsg) => {
+              console.error("Failed to refresh auth status after logout:", authErrorCode, authErrorMsg);
+              setAuthStatus({ status: 'Error', error: `Logout successful, but failed to refresh status: ${authErrorMsg}` });
             }
-        );
+          );
+        },
+        (errorCode, errorMessage) => {
+          console.error("Logout failed (callback):", errorCode, errorMessage);
+          const errorText = errorMessage || 'Logout failed.';
+          setAuthStatus({ status: 'Error', error: errorText }); // Use errorMessage string
+          setLoginError(errorText); // Use errorMessage string
+        }
+      );
     } catch (error: any) { // Catch potential synchronous errors
-        console.error("Synchronous error during logout call:", error);
-        const errorMsg = error.message || 'An unexpected error occurred during logout.';
-        setAuthStatus({ status: 'Error', error: errorMsg });
-        setLoginError(errorMsg);
+      console.error("Synchronous error during logout call:", error);
+      const errorMsg = error.message || 'An unexpected error occurred during logout.';
+      setAuthStatus({ status: 'Error', error: errorMsg });
+      setLoginError(errorMsg);
     }
   };
 
@@ -439,121 +441,115 @@ function App() {
   const handleGameAction = (gameId: string, actionString: string) => {
     const validActions = ['install', 'launch', 'update'];
     if (!validActions.includes(actionString)) {
-        console.error(`Invalid action string received: ${actionString}`);
-        alert(`Invalid action: ${actionString}`);
-        return;
+      console.error(`Invalid action string received: ${actionString}`);
+      alert(`Invalid action: ${actionString}`);
+      return;
     }
     const action = actionString as 'install' | 'launch' | 'update';
 
     if (!api) {
       alert("Action service unavailable.");
       return;
-    } 
+    }
 
     console.log(`Performing action: ${action} for game: ${gameId}`);
     try {
-        api.performGameAction(action, gameId,
-            () => {
-                console.log(`${action} action successful (callback) for ${gameId}`);
-                const gameName = games.find(g => g.id === gameId)?.name || gameId; 
-                alert(`${action} initiated for ${gameName}`); 
+      api.performGameAction(action, gameId,
+        () => {
+          console.log(`${action} action successful (callback) for ${gameId}`);
+          const gameName = games.find(g => g.id === gameId)?.name || gameId;
+          alert(`${action} initiated for ${gameName}`);
 
-                // Example: Refresh game list after action
-                // api.getGameList(
-                //     (fetchedGames) => setGames(fetchedGames),
-                //     (error) => console.error('Error refreshing game list after action:', error)
-                // );
-            },
-            (error) => {
-                console.error(`${action} action failed (callback) for ${gameId}:`, error);
-                const gameName = games.find(g => g.id === gameId)?.name || gameId; 
-                alert(`Failed to ${action} ${gameName}: ${error}`); 
-            }
-        );
-    } catch (error: any) { 
-        console.error(`Synchronous error during ${action} call for ${gameId}:`, error);
-        const gameName = games.find(g => g.id === gameId)?.name || gameId; 
-        alert(`An unexpected error occurred while trying to ${action} ${gameName}.`);
+          // Example: Refresh game list after action
+          // api.getGameList(
+          //     (fetchedGames) => setGames(fetchedGames),
+          //     (error) => console.error('Error refreshing game list after action:', error)
+          // );
+        },
+        (error) => {
+          console.error(`${action} action failed (callback) for ${gameId}:`, error);
+          const gameName = games.find(g => g.id === gameId)?.name || gameId;
+          alert(`Failed to ${action} ${gameName}: ${error}`);
+        }
+      );
+    } catch (error: any) { // Catch potential synchronous errors
+      console.error(`Synchronous error during ${action} call for ${gameId}:`, error);
+      const gameName = games.find(g => g.id === gameId)?.name || gameId;
+      alert(`An unexpected error occurred while trying to ${action} ${gameName}.`);
     }
   };
 
-  const selectedGame = games.find(game => game.id === selectedGameId) || null;
+  // --- New Navigation Handler ---
+  const handleNavClick = (view: string) => {
+    console.log("Navigating to view:", view);
+    setActiveView(view);
+  };
+
+  const selectedGame = useMemo(() => {
+    return games.find(game => game.id === selectedGameId) ?? null;
+  }, [games, selectedGameId]);
 
   // --- Render Logic ---
-
-  if (isLoadingGames) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gray-900 text-white text-lg">
-        Initializing Launcher...
-      </div>
-    );
-  }
-
-  if (apiError) {
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-red-900 text-white p-8 text-center">
-        <h2 className="text-2xl font-bold mb-4">Connection Error</h2>
-        <p className="mb-6">{apiError}</p>
-        {/* Optionally add a retry button? */}
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col h-screen bg-gradient-to-br from-gray-900 to-gray-800 text-gray-100 font-sans overflow-hidden">
-      {/* Header Area */}
-      <header className="bg-gray-950 shadow-lg p-3 flex justify-between items-center flex-shrink-0 border-b border-gray-700">
-        <h1 className="text-xl font-bold text-purple-400">WindSurf Game Launcher</h1>
-        <span className="text-xs text-gray-500">v{version}</span>
-      </header>
-
-      {/* Main Content Area (Scrollable if needed) */}
-      <main className="flex-grow flex p-4 space-x-4 overflow-auto">
-
-        {/* Left Panel: Game List (fixed width, scrollable) */}
-        <aside className="w-64 flex-shrink-0 bg-gray-900 p-3 rounded-lg shadow-md overflow-y-auto">
-          <h2 className="text-lg font-semibold mb-3 border-b border-gray-700 pb-2 text-purple-300">Library</h2>
-          {games.length > 0 ? (
-            games.map(game => (
-              <GameItem
-                key={game.id}
-                game={game}
-                isSelected={game.id === selectedGameId}
-                onClick={() => setSelectedGameId(game.id)}
-              />
-            ))
-          ) : (
-            <p className="text-gray-500 text-sm text-center mt-4">No games found.</p>
-          )}
-        </aside>
-
-        {/* Center Panel: Game Details (flex-grow) */}
-        <section className="flex-grow bg-gray-900 rounded-lg shadow-md overflow-hidden">
-          <GameDetails game={selectedGame} onAction={handleGameAction} />
-        </section>
-
-        {/* Right Panel: Auth & Actions (fixed width) */}
-        <section className="w-72 flex-shrink-0 bg-gray-900 p-4 rounded-lg shadow-md flex flex-col space-y-4">
-          <AuthArea
-            authStatus={authStatus}
-            onLogin={handleLogin} 
-            onLogout={handleLogout}
-            loginError={loginError}
-          />
-          {/* Placeholder for other actions/news */}
-          <div className="bg-gray-700 p-3 rounded mt-auto shadow-inner">
-            <h3 className="text-md font-semibold mb-2 text-purple-300">News Feed</h3>
-            <p className="text-sm text-gray-400">Latest game updates and announcements will appear here.</p>
+    <Layout>
+      <TopBar />
+      <LeftSidebar activeView={activeView} setActiveView={handleNavClick} />
+      <RightSidebar />
+      <MainContentArea>
+        {isLoadingGames ? (
+          <div className="flex justify-center items-center h-full">
+            <p className="text-xl text-gray-400">Loading Launcher Data...</p>
           </div>
-        </section>
-      </main>
+        ) : apiError ? (
+          <div className="flex justify-center items-center h-full p-10">
+            <p className="text-xl text-red-400 bg-red-900 p-4 rounded border border-red-600">Error: {apiError}</p>
+          </div>
+        ) : activeView === 'Games' ? (
+          <div className="grid grid-cols-3 gap-6 h-full">
+            <div className="col-span-1 flex flex-col h-full overflow-hidden">
+              <h2 className="text-xl font-semibold mb-4 px-3 pt-3 text-gray-200">My Games ({games.length})</h2>
+              <div className="flex-grow overflow-y-auto pr-2 space-y-2 no-scrollbar pl-3 pb-3">
+                {games.length > 0 ? (
+                  games.map(game => (
+                    <GameItem
+                      key={game.id}
+                      game={game}
+                      isSelected={selectedGameId === game.id}
+                      onClick={() => setSelectedGameId(game.id)}
+                    />
+                  ))
+                ) : (
+                  <p className="text-gray-500 text-center py-10">No games found.</p>
+                )}
+              </div>
+              <div className="mt-auto p-3 border-t border-gray-700">
+                <AuthArea
+                  authStatus={authStatus}
+                  onLogin={handleLogin}
+                  onLogout={handleLogout}
+                  loginError={loginError}
+                />
+              </div>
+            </div>
 
-      {/* Footer - Subtle */}
-      <div className="px-6 py-1.5 bg-gray-950 border-t border-gray-700 text-xs text-gray-500 flex items-center justify-between flex-shrink-0">
-        <span>Status: {api ? 'Ready' : 'Offline' }</span>
-        <span>Version: {version}</span>
+            <div className="col-span-2 h-full overflow-hidden">
+              <GameDetails game={selectedGame} onAction={handleGameAction} />
+            </div>
+          </div>
+        ) : activeView === 'Home' ? (
+          <div className="text-center p-10 text-gray-400">Home View Placeholder</div>
+        ) : activeView === 'Shop' ? (
+          <div className="text-center p-10 text-gray-400">Shop View Placeholder</div>
+        ) : activeView === 'Clans' ? (
+          <div className="text-center p-10 text-gray-400">Clans View Placeholder</div>
+        ) : (
+          <div className="text-center p-10 text-gray-400">Unknown View</div>
+        )}
+      </MainContentArea>
+      <div className="fixed bottom-2 right-70 text-xs text-gray-500 z-10">
+        Version: {version}
       </div>
-    </div>
+    </Layout>
   );
 }
 
