@@ -2,7 +2,7 @@ import React from 'react';
 
 // Placeholder components/icons - Replace with actual implementations
 const UserAvatar = ({ online }: { online?: boolean }) => (
-    <div className={`relative w-8 h-8 rounded-full bg-purple-500 ${online ? 'border-2 border-green-500' : 'border-2 border-gray-500'}`}></div>
+    <div className={`relative w-8 h-8 rounded-full bg-purple-500 ${online ? 'border-2 border-neutral-400' : 'border-2 border-neutral-500'}`}></div>
 );
 const AddFriendIcon = () => <div className="w-5 h-5 bg-blue-500 rounded-sm">+</div>;
 const GroupIcon = () => <div className="w-5 h-5 bg-orange-500 rounded-sm">G</div>;
@@ -15,11 +15,11 @@ interface FriendListItemProps {
   isOnline: boolean;
 }
 const FriendListItem: React.FC<FriendListItemProps> = ({ id, username, statusText, isOnline }) => (
-  <div key={id} className="flex items-center space-x-2 p-1 hover:bg-gray-700 rounded cursor-pointer">
+  <div key={id} className="flex items-center space-x-2 p-1 hover:bg-neutral-700 rounded cursor-pointer">
     <UserAvatar online={isOnline} />
     <div className="flex-grow">
-      <div className="text-sm text-gray-100">{username}</div>
-      <div className="text-xs text-gray-400 truncate">{statusText}</div>
+      <div className="text-sm text-neutral-100">{username}</div>
+      <div className="text-xs text-neutral-400 truncate">{statusText}</div>
     </div>
   </div>
 );
@@ -40,9 +40,9 @@ const RightSidebar: React.FC<RightSidebarProps> = (/* { friends } */) => {
   ];
 
   return (
-    <div className="fixed right-0 top-0 bottom-0 h-screen pt-12 bg-gray-800 text-gray-300 w-64 flex flex-col border-l border-gray-700">
+    <div className="h-full w-full flex flex-col bg-neutral-800 text-neutral-300 border-l border-neutral-700">
       {/* Top Actions */}
-      <div className="flex justify-around p-3 border-b border-gray-700">
+      <div className="flex justify-around p-3 border-b border-neutral-700">
         <AddFriendIcon />
         <GroupIcon />
         {/* Add other action icons as needed */}
@@ -51,8 +51,8 @@ const RightSidebar: React.FC<RightSidebarProps> = (/* { friends } */) => {
       {/* Friends List */}
       <div className="flex-grow overflow-y-auto p-2 no-scrollbar">
         <div className="flex justify-between items-center text-sm mb-2 px-1">
-          <span className="font-semibold text-gray-100">Friends</span>
-          <span className="text-gray-400">{dummyFriends.filter(f => f.isOnline).length} Online</span>
+          <span className="font-semibold text-neutral-100">Friends</span>
+          <span className="text-neutral-400">{dummyFriends.filter(f => f.isOnline).length} Online</span>
         </div>
         <div className="space-y-1">
           {dummyFriends.map(friend => (
@@ -68,7 +68,7 @@ const RightSidebar: React.FC<RightSidebarProps> = (/* { friends } */) => {
       </div>
 
       {/* Chats/Groups Button */}
-      <div className="p-3 text-center bg-gray-900 hover:bg-gray-700 cursor-pointer border-t border-gray-700">
+      <div className="p-3 text-center bg-neutral-900 hover:bg-neutral-700 cursor-pointer border-t border-neutral-700">
         Chats & Groups
       </div>
     </div>

@@ -130,6 +130,7 @@ FetchContent_MakeAvailable(cef_binary)
 # Explicitly exclude CEF tests/example targets to avoid runtime library conflicts
 set_target_properties(ceftests PROPERTIES EXCLUDE_FROM_ALL TRUE)
 set_target_properties(cefsimple PROPERTIES EXCLUDE_FROM_ALL TRUE)
+set_target_properties(cefclient PROPERTIES EXCLUDE_FROM_ALL TRUE)
 
 # Disable the sandbox BEFORE making CEF available
 set(USE_SANDBOX OFF CACHE BOOL "Disable CEF sandbox" FORCE)
@@ -327,6 +328,9 @@ if(WIN32)
     )
 
 endif() # End of WIN32 specific settings
+
+# Ensure UI is built and copied before the executable is linked
+add_dependencies(GameLauncher BuildUI)
 
 # === Installation (Optional) ===
 # install(TARGETS GameLauncher DESTINATION bin)

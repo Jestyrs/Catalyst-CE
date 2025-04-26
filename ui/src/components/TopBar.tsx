@@ -15,7 +15,7 @@ interface TopBarProps {
 
 const TopBar: React.FC<TopBarProps> = (/* { username, clanName } */) => {
   return (
-    <div className="fixed top-0 left-0 right-0 z-10 flex justify-between items-center h-12 bg-gray-900 text-white px-4 border-b border-gray-700">
+    <div className="fixed top-0 left-0 right-0 z-10 flex justify-between items-center h-12 bg-neutral-800 text-neutral-100 px-4 border-b border-neutral-700">
       {/* Left Section: Window Controls + Logo */}
       <div className="flex items-center space-x-2">
         {/* Placeholder for Window Controls */}
@@ -33,7 +33,7 @@ const TopBar: React.FC<TopBarProps> = (/* { username, clanName } */) => {
         <UserAvatar />
         <div className="text-sm">
           <div>Username</div> {/* Replace with prop */} 
-          <div className="text-xs text-green-400">Online</div> {/* Add logic for status */}
+          <div className="text-xs text-neutral-400">Online</div> {/* Add logic for status */}
         </div>
         <NotificationIcon />
         <SettingsIcon />
