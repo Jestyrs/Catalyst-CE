@@ -128,18 +128,16 @@ bool LauncherMessageRouterHandler::OnQuery(CefRefPtr<CefBrowser> browser,
             HandleGameAction(json_payload, callback);
         } else if (message_name == "getGameListRequest") {
             HandleGetGameList(callback);
-        } else if (message_name == "loginRequest") {
-            HandleLogin(json_payload, callback);
-        } else if (message_name == "logoutRequest") {
-            HandleLogout(callback);
-        } else if (message_name == "getAuthStatusRequest") {
-            HandleGetAuthStatus(callback);
         } else if (message_name == "getAppSettingsRequest") {
             HandleGetAppSettings(callback);
         } else if (message_name == "setAppSettingsRequest") {
             HandleSetAppSettings(json_payload, callback);
         } else if (message_name == "requestLaunch") { // Add this case
             HandleLaunchRequest(json_payload, callback);
+        } else if (message_name == "getAuthStatusRequest") { // Added
+            HandleGetAuthStatus(callback);
+        } else if (message_name == "loginRequest") { // Added
+            HandleLogin(json_payload, callback);
         } else {
             LOG(WARNING) << "Unknown message name received (ID: " << query_id << "): '" << message_name << "'";
             SendErrorResponse(callback, "Unknown message name: " + message_name, 0); // Use 0 or a specific code
@@ -239,58 +237,6 @@ void LauncherMessageRouterHandler::HandleGetGameList(CefRefPtr<CefMessageRouterB
     // Indicate the message was handled implicitly by not returning false/throwing
 }
 
-void LauncherMessageRouterHandler::HandleLogin(const std::string& json_payload, CefRefPtr<CefMessageRouterBrowserSide::Callback> callback) {
-    nlohmann::json payload = nlohmann::json::parse(json_payload); // Throws on parse error
-    if (!payload.contains("username") || !payload["username"].is_string() ||
-        !payload.contains("password") || !payload["password"].is_string()) {
-         SendErrorResponse(callback, "Invalid payload: 'username' and 'password' must be strings.", ERR_INVALID_PARAMS);
-        return;
-    }
-
-    std::string username = payload.at("username").get<std::string>();
-    std::string password = payload.at("password").get<std::string>();
-    LOG(INFO) << "Attempting login via IPC for user: '" << username << "'";
-
-    absl::Status login_status = ipc_service_->Login(username, password);
-    if (login_status.ok()) {
-        LOG(INFO) << "IPC service successfully processed login request for user '" << username << "'";
-        SendJsonResponse(callback, {{"status", "success"}});
-        // TODO: Potentially include user profile in response
-    } else {
-        LOG(ERROR) << "IPC service failed login for user '" << username << "': " << login_status;
-        SendErrorResponse(callback, login_status.ToString(), static_cast<int>(login_status.code()));
-    }
-}
-
-void LauncherMessageRouterHandler::HandleLogout(CefRefPtr<CefMessageRouterBrowserSide::Callback> callback) {
-    LOG(INFO) << "Attempting logout via IPC.";
-    absl::Status logout_status = ipc_service_->Logout();
-    if (logout_status.ok()) {
-        LOG(INFO) << "IPC service successfully processed logout request.";
-        SendJsonResponse(callback, {{"status", "success"}});
-    } else {
-        LOG(ERROR) << "IPC service failed logout: " << logout_status;
-        SendErrorResponse(callback, logout_status.ToString(), static_cast<int>(logout_status.code()));
-    }
-}
-
-void LauncherMessageRouterHandler::HandleGetAuthStatus(CefRefPtr<CefMessageRouterBrowserSide::Callback> callback) {
-    nlohmann::json response_json;
-    core::AuthStatus status = ipc_service_->GetAuthStatus();
-    response_json["status"] = game_launcher::core::AuthStatusToString(status);
-
-    if (status == core::AuthStatus::kLoggedIn) {
-        absl::StatusOr<core::UserProfile> profile_status = ipc_service_->GetCurrentUserProfile();
-        if (profile_status.ok()) {
-            response_json["profile"] = *profile_status; // Uses NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE
-        } else {
-            LOG(WARNING) << "User is logged in but failed to get profile: " << profile_status.status();
-            response_json["profile"] = nullptr;
-        }
-    }
-    SendJsonResponse(callback, response_json);
-}
-
 void LauncherMessageRouterHandler::HandleGetAppSettings(CefRefPtr<CefMessageRouterBrowserSide::Callback> callback) {
     core::AppSettings settings = ipc_service_->GetAppSettings(); // Added core:: namespace
     try {
@@ -349,6 +295,87 @@ void LauncherMessageRouterHandler::HandleLaunchRequest(const std::string& json_p
     }
 }
 
+// Added: Handler for getAuthStatusRequest
+void LauncherMessageRouterHandler::HandleGetAuthStatus(CefRefPtr<CefMessageRouterBrowserSide::Callback> callback) {
+    LOG(INFO) << "Handling getAuthStatusRequest";
+    if (!ipc_service_) {
+        SendErrorResponse(callback, "Core service unavailable", ERR_IPC_SERVICE_UNAVAILABLE);
+        return;
+    }
+
+    // TODO: Implement actual call to ipc_service_->GetAuthStatus()
+    // Example structure:
+    // absl::StatusOr<core::AuthStatus> status_result = ipc_service_->GetAuthStatus();
+    // if (status_result.ok()) {
+    //     nlohmann::json response;
+    //     response["status"] = core::AuthStatusToString(*status_result); // Assuming AuthStatusToString exists
+         // Add user profile data if available based on status
+         // if (*status_result == core::AuthStatus::LOGGED_IN) {
+         //     auto profile_result = ipc_service_->GetUserProfile(); // Hypothetical
+         //     if (profile_result.ok()) {
+         //        response["profile"] = profile_result->ToJson(); // Assuming UserProfile has ToJson
+         //     }
+         // }
+    //     SendJsonResponse(callback, response);
+    // } else {
+    //     SendErrorResponse(callback, status_result.status().ToString(), static_cast<int>(status_result.status().code()));
+    // }
+
+    // Placeholder response until IPC is implemented
+    SendJsonResponse(callback, {{"status", "UNKNOWN"}, {"message", "Auth status check not fully implemented yet."}});
+}
+
+// Added: Handler for loginRequest
+void LauncherMessageRouterHandler::HandleLogin(const std::string& json_payload, CefRefPtr<CefMessageRouterBrowserSide::Callback> callback) {
+    LOG(INFO) << "Handling loginRequest";
+    if (!ipc_service_) {
+        SendErrorResponse(callback, "Core service unavailable", ERR_IPC_SERVICE_UNAVAILABLE);
+        return;
+    }
+
+    try {
+        nlohmann::json payload = nlohmann::json::parse(json_payload); // Throws on parse error
+
+        // Validate payload
+        if (!payload.contains("username") || !payload["username"].is_string() ||
+            !payload.contains("password") || !payload["password"].is_string()) {
+            SendErrorResponse(callback, "Invalid payload: 'username' (string) and 'password' (string) required.", ERR_INVALID_PARAMS);
+            return;
+        }
+
+        std::string username = payload.at("username").get<std::string>();
+        std::string password = payload.at("password").get<std::string>();
+        // Avoid logging password in production!
+        LOG(INFO) << "Attempting login for user: " << username;
+
+        // TODO: Implement actual call to ipc_service_->Login(username, password)
+        // Example structure:
+        // absl::StatusOr<core::UserProfile> login_result = ipc_service_->Login(username, password);
+        // if (login_result.ok()) {
+        //     nlohmann::json response;
+        //     response["status"] = "LOGGED_IN";
+        //     response["profile"] = login_result->ToJson(); // Assuming UserProfile has ToJson
+        //     SendJsonResponse(callback, response);
+        // } else {
+        //     SendErrorResponse(callback, login_result.status().ToString(), static_cast<int>(login_result.status().code()));
+        // }
+
+        // Placeholder response until IPC is implemented
+        SendErrorResponse(callback, "Login functionality not fully implemented yet.", ERR_INTERNAL_ERROR);
+
+    } catch (const nlohmann::json::parse_error& e) {
+        std::string error_msg = absl::StrCat("JSON Parse Error during login: ", e.what());
+        LOG(ERROR) << error_msg << ", Payload: " << json_payload;
+        SendErrorResponse(callback, error_msg, ERR_PARSE_ERROR);
+    } catch (const nlohmann::json::exception& e) {
+        std::string error_msg = absl::StrCat("JSON Processing Error during login: ", e.what());
+        LOG(ERROR) << error_msg << ", Payload: " << json_payload;
+        SendErrorResponse(callback, error_msg, ERR_INVALID_PARAMS);
+    } catch (...) {
+         LOG(ERROR) << "Unknown exception during HandleLogin";
+        SendErrorResponse(callback, "An unknown internal error occurred during login.", ERR_UNKNOWN_ERROR);
+    }
+}
 
 // --- Binary OnQuery (Not Implemented) ---
 bool LauncherMessageRouterHandler::OnQuery(CefRefPtr<CefBrowser> browser,
