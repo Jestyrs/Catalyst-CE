@@ -3,6 +3,7 @@ import TopBar from './TopBar.tsx';
 import LeftSidebar from './LeftSidebar.tsx';
 import RightSidebar from './RightSidebar.tsx';
 import MainContentArea from './MainContentArea.tsx';
+import LoginModal from './LoginModal.tsx';
 
 // --- Type Definitions (Copied from App.tsx/MainContentArea.tsx for now) ---
 interface Game {
@@ -38,11 +39,16 @@ interface LayoutProps {
   selectedGameId: string | null;
   setSelectedGameId: (id: string | null) => void;
   authStatus: AuthStatus | null;
-  handleLogin: () => void;
   handleLogout: () => void;
   loginError: string | null;
   selectedGame: Game | null;
   handleGameAction: (gameId: string, action: string) => void;
+  // Props needed specifically for TopBar
+  handleLogin: () => void;
+  // Props for Login Modal
+  isLoginModalOpen: boolean;
+  handleCloseLoginModal: () => void;
+  handleLoginSubmit: (username: string, password: string) => Promise<void>;
 }
 
 const Layout: React.FC<LayoutProps> = ({
@@ -55,28 +61,34 @@ const Layout: React.FC<LayoutProps> = ({
   selectedGameId,
   setSelectedGameId,
   authStatus,
-  handleLogin,
   handleLogout,
   loginError,
   selectedGame,
-  handleGameAction
+  handleGameAction,
+  // Destructure TopBar specific props
+  handleLogin: handleLoginForTopBar,
+  // Destructure Modal props
+  isLoginModalOpen,
+  handleCloseLoginModal,
+  handleLoginSubmit
 }) => {
+  console.log('[Layout] Received authStatus:', authStatus);
   return (
-    <div className="flex flex-col h-screen bg-neutral-900 text-neutral-100">
+    <div className="flex flex-col h-screen bg-zinc-900 text-gray-200">
       {/* Pass necessary props to TopBar */}
-      <TopBar />
+      <TopBar authStatus={authStatus} handleLogin={handleLoginForTopBar} />
 
       {/* Main content area: flex-grow allows this div to take remaining vertical space */}
       {/* pt-12 offsets the fixed TopBar (assuming h-12) */}
       {/* overflow-hidden prevents scrollbars on this row container itself */}
-      <div className="flex flex-grow pt-12 overflow-hidden"> 
+      <div className="flex flex-grow pt-12 overflow-hidden">
         {/* Left Sidebar: Fixed width, shrinks if needed but doesn't grow */}
-        <div className="w-64 flex-shrink-0">
+        <div className="w-64 flex-shrink-0 bg-zinc-800">
           <LeftSidebar activeView={activeView} setActiveView={setActiveView} />
         </div>
 
         {/* Main Content: Takes remaining space */}
-        <div className="flex-grow overflow-auto"> {/* overflow-auto for scrollable content */}
+        <div className="flex-grow overflow-auto bg-zinc-900">
           <MainContentArea
             activeView={activeView} // Pass activeView too
             isLoadingGames={isLoadingGames}
@@ -85,7 +97,6 @@ const Layout: React.FC<LayoutProps> = ({
             selectedGameId={selectedGameId}
             setSelectedGameId={setSelectedGameId}
             authStatus={authStatus}
-            handleLogin={handleLogin}
             handleLogout={handleLogout}
             loginError={loginError}
             selectedGame={selectedGame}
@@ -94,10 +105,21 @@ const Layout: React.FC<LayoutProps> = ({
         </div>
 
         {/* Right Sidebar: Fixed width, shrinks if needed but doesn't grow */}
-        <div className="w-64 flex-shrink-0">
-          <RightSidebar />
+        <div className="w-80 flex-shrink-0 bg-zinc-800">
+          <RightSidebar
+            authStatus={authStatus}
+            handleLogout={handleLogout}
+          />
         </div>
       </div>
+      {/* Render Login Modal inside Layout */}
+      <LoginModal
+        isOpen={isLoginModalOpen}
+        onClose={handleCloseLoginModal}
+        onSubmit={handleLoginSubmit}
+        error={loginError} // Pass the loginError prop
+        authStatus={authStatus?.status ?? 'LoggedOut'} // Pass authStatus status
+      />
     </div>
   );
 };

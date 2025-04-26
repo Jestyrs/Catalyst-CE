@@ -4,7 +4,7 @@ import Layout from './components/Layout.tsx';
 
 // @ts-ignore - TS struggles to see GameUpdateEvent usage within window listener callback
 
-import { Game, AuthStatus, GameLauncherAPI, GameUpdateEvent } from './api.ts';
+import { Game, AuthStatus, GameLauncherAPI } from './api.ts';
 
 
 
@@ -29,6 +29,10 @@ const App: React.FC = () => {
   const [apiError, setApiError] = useState<string | null>(null);
 
   const [activeView, setActiveView] = useState<string>('Games');
+
+  const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
+
+  const [version, ] = useState<string | null>(null); 
 
 
 
@@ -290,48 +294,23 @@ const App: React.FC = () => {
 
       },
 
-      login: (
-
-        onSuccess: (status: AuthStatus) => void, // Wrapper expects callback with AuthStatus
-
-        onFailure: FailureCallback
-
-      ) => {
-
+      login: (username: string, password: string, onSuccess: (status: AuthStatus) => void, onFailure: FailureCallback) => {
+        if (!api || !api.login) return onFailure(500, "API not available");
+        console.log("[apiWrapper] Calling real login for user:", username);
         api.login(
-
-          (statusJson: string) => { // Add explicit type for raw param
-
+          username, // Pass username
+          password, // Pass password
+          (statusJson: string) => { // Real API Success
             try {
-
-              const parsedStatus: AuthStatus = JSON.parse(statusJson);
-
-               if (parsedStatus && typeof parsedStatus.status === 'string') {
-
-                  onSuccess(parsedStatus); // Pass parsed status
-
-               } else {
-
-                  console.error("Parsed login response is invalid:", parsedStatus);
-
-                  onFailure(999, "Invalid data format received after login");
-
-               }
-
+              const parsedStatus = JSON.parse(statusJson) as AuthStatus;
+              onSuccess(parsedStatus);
             } catch (e) {
-
-              console.error("Failed to parse login response:", e, "Raw:", statusJson);
-
-              onFailure(999, "Failed to parse login response");
-
+              console.error("[apiWrapper] Login success callback: Failed to parse JSON:", statusJson, e);
+              onFailure(500, "Invalid response format from server");
             }
-
           },
-
-          onFailure
-
+          onFailure // Pass failure callback directly
         );
-
       },
 
       logout: (
@@ -498,49 +477,69 @@ const App: React.FC = () => {
 
   const handleLogin = () => {
 
-    if (apiWrapper) {
+    console.log('Login initiated from TopBar...');
 
-      setAuthStatus({ status: 'LoggingIn' }); // Optimistic UI update
+    setLoginError(null); // Clear previous errors
 
-      setLoginError(null);
+    setIsLoginModalOpen(true); // Open the modal
 
-      apiWrapper.login(
-
-        (status: AuthStatus) => { // Add explicit type
-
-          console.log("Login successful, status:", status);
-
-          setAuthStatus(status); // Update with status from backend
-
-        },
-
-        (errCode: number, errMsg: string) => { // Add explicit types
-
-          console.error("Login failed:", errCode, errMsg);
-
-          setLoginError(`Login failed: ${errMsg} (${errCode})`);
-
-          // Revert optimistic update or set specific error status
-
-          setAuthStatus({ status: 'Error', error: `Login failed: ${errMsg}` });
-
-        }
-
-      );
-
-    } else {
-
-      setLoginError("API not available.");
-
-      setAuthStatus({ status: 'Error', error: 'API unavailable' });
-
-      console.error("Login attempt failed: API wrapper not available.");
-
-    }
+    // The actual API call will happen inside the modal
 
   };
 
+  const handleCloseLoginModal = () => {
+    setIsLoginModalOpen(false);
+  };
 
+  // Handler for actual login submission (from Modal)
+  const handleLoginSubmit = async (username: string, password: string) => {
+    if (!apiWrapper || !apiWrapper.login) {
+      console.error("Login submit failed: API wrapper or login function not available.");
+      setLoginError("Login service unavailable. Please restart.");
+      setAuthStatus({ status: 'Error', error: 'API unavailable' });
+      return;
+    }
+
+    setAuthStatus({ status: 'LoggingIn' });
+    setLoginError(null);
+
+    // Basic validation (can be expanded in the modal)
+    if (!username || !password) {
+      setLoginError("Username and password are required.");
+      setAuthStatus({ status: 'LoggedOut' }); // Revert optimistic status
+      return;
+    }
+
+    console.log(`Attempting login for user: ${username}`);
+
+    try {
+      // Assume apiWrapper.login is now promisified or uses callbacks correctly
+      // For this example, we'll simulate the callback structure within the handler
+      apiWrapper.login(
+        username, // Assuming login takes username/password now
+        password,
+        (status: AuthStatus) => { // Success Callback
+          console.log("Login successful via API callback, status:", status);
+          setAuthStatus(status);
+          setIsLoginModalOpen(false); // Close modal on success
+        },
+        (errCode: number, errMsg: string) => { // Failure Callback
+          console.error("Login failed via API callback:", errCode, errMsg);
+          const errorMsg = `Login failed: ${errMsg} (${errCode})`;
+          setLoginError(errorMsg);
+          setAuthStatus({ status: 'Error', error: errorMsg });
+          // Keep modal open on failure to show error
+        }
+      );
+    } catch (error) {
+      // This catch block might not be reached if apiWrapper.login uses callbacks
+      // But good practice to have if it could throw synchronously
+      console.error("Synchronous error during login attempt:", error);
+      const errorMsg = "An unexpected error occurred during login.";
+      setLoginError(errorMsg);
+      setAuthStatus({ status: 'Error', error: errorMsg });
+    }
+  };
 
   // Handler for logout action
 
@@ -740,44 +739,39 @@ const App: React.FC = () => {
 
   // --- Render Logic ---
 
+  console.log('[App] Rendering with authStatus:', authStatus); // <-- Add log
   return (
-
-    <Layout
-
-      activeView={activeView}
-
-      setActiveView={handleNavClick}
-
-      isLoadingGames={isLoadingGames}
-
-      apiError={apiError}
-
-      games={games}
-
-      selectedGameId={selectedGameId}
-
-      setSelectedGameId={setSelectedGameId}
-
-      authStatus={authStatus}
-
-      handleLogin={handleLogin}
-
-      handleLogout={handleLogout}
-
-      loginError={loginError}
-
-      selectedGame={selectedGame}
-
-      handleGameAction={handleGameAction}
-
-    />
-
-    // NOTE: The version display might need to be moved into a specific component (e.g., TopBar or a new StatusBar) if desired.
-
+    <div>
+      <Layout
+        activeView={activeView}
+        setActiveView={handleNavClick}
+        isLoadingGames={isLoadingGames}
+        apiError={apiError}
+        games={games}
+        selectedGameId={selectedGameId}
+        setSelectedGameId={setSelectedGameId}
+        authStatus={authStatus}
+        handleLogin={handleLogin}
+        handleLogout={handleLogout}
+        loginError={loginError}
+        selectedGame={selectedGame}
+        handleGameAction={handleGameAction}
+        isLoginModalOpen={isLoginModalOpen}
+        handleCloseLoginModal={handleCloseLoginModal}
+        handleLoginSubmit={handleLoginSubmit} // <-- Pass the new handler
+      />
+      {version && <div className="fixed bottom-1 right-1 text-xs text-gray-500">v{version}</div>}
+      {/* Render Login Modal if open - Pass required props */}
+      {/* <LoginModal 
+        isOpen={isLoginModalOpen}
+        onClose={handleCloseLoginModal}
+        onSubmit={handleLoginSubmit}
+        error={loginError} // Pass the specific login error state
+        authStatus={authStatus?.status ?? 'LoggedOut'} // Use nullish coalescing
+      /> */} 
+    </div>
   );
 
 };
-
-
 
 export default App;
