@@ -1,76 +1,110 @@
 import React from 'react';
+import { AuthStatus } from '../api.ts'; // Import necessary types
 
 // Placeholder components/icons - Replace with actual implementations
-const UserAvatar = ({ online }: { online?: boolean }) => (
-    <div className={`relative w-8 h-8 rounded-full bg-purple-500 ${online ? 'border-2 border-neutral-400' : 'border-2 border-neutral-500'}`}></div>
+// Apply consistent styling
+const UserAvatar = ({ online, username }: { online?: boolean; username?: string }) => (
+  // Corrected className syntax
+  <div className={`relative w-8 h-8 rounded-full flex items-center justify-center text-sm font-semibold ${username ? 'bg-purple-600 text-white' : 'bg-zinc-700 text-gray-400'}`}> 
+    {username ? username.charAt(0).toUpperCase() : '?'}
+    {online && (
+      <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 ring-2 ring-zinc-800"></span>
+    )}
+  </div>
 );
-const AddFriendIcon = () => <div className="w-5 h-5 bg-blue-500 rounded-sm">+</div>;
-const GroupIcon = () => <div className="w-5 h-5 bg-orange-500 rounded-sm">G</div>;
 
-// Placeholder FriendListItem
+const AddFriendIcon = () => <div className="text-gray-400 hover:text-gray-100 cursor-pointer">[+]</div>; // Basic placeholder
+const CreateGroupIcon = () => <div className="text-gray-400 hover:text-gray-100 cursor-pointer">[G+]</div>; // Basic placeholder
+
+// Friend List Item Component (Example)
 interface FriendListItemProps {
-  id: string;
   username: string;
-  statusText: string;
+  status: string; // e.g., 'Online', 'Idle', 'Offline', 'In Game'
   isOnline: boolean;
 }
-const FriendListItem: React.FC<FriendListItemProps> = ({ id, username, statusText, isOnline }) => (
-  <div key={id} className="flex items-center space-x-2 p-1 hover:bg-neutral-700 rounded cursor-pointer">
-    <UserAvatar online={isOnline} />
+
+const FriendListItem: React.FC<FriendListItemProps> = ({ username, status, isOnline }) => (
+  <div className="flex items-center space-x-3 p-2 rounded hover:bg-zinc-700 cursor-pointer"> {/* Updated hover */}
+    <UserAvatar online={isOnline} username={username} />
     <div className="flex-grow">
-      <div className="text-sm text-neutral-100">{username}</div>
-      <div className="text-xs text-neutral-400 truncate">{statusText}</div>
+      <div className="text-sm font-medium text-gray-200">{username}</div> {/* Updated text */}
+      <div className="text-xs text-gray-400">{status}</div> {/* Updated text */}
     </div>
   </div>
 );
 
+// --- Component Props Definition ---
 interface RightSidebarProps {
-  // Add props for friends list data, event handlers etc.
-  // friends: Friend[];
+  authStatus: AuthStatus | null; // Add authStatus
+  handleLogout: () => void;     // Add handleLogout
 }
 
-const RightSidebar: React.FC<RightSidebarProps> = (/* { friends } */) => {
+// --- Right Sidebar Component ---
+const RightSidebar: React.FC<RightSidebarProps> = ({ authStatus, handleLogout }) => {
+  const isLoggedIn = authStatus?.status === 'LoggedIn';
+  const userProfile = isLoggedIn ? authStatus.profile : null;
 
   // Dummy friends data - replace with prop
   const dummyFriends: FriendListItemProps[] = [
-    { id: 'friend1', username: 'ShadowGamer', statusText: 'Playing Stellar Conquest', isOnline: true },
-    { id: 'friend2', username: 'MysticWizard', statusText: 'Online', isOnline: true },
-    { id: 'friend3', username: 'CyberNinja', statusText: 'Offline', isOnline: false },
-    { id: 'friend4', username: 'CosmicVoyager', statusText: 'In Launcher', isOnline: true },
+    { username: 'ShadowNinja', status: 'In Game - Valorant', isOnline: true }, 
+    { username: 'PixelQueen', status: 'Online', isOnline: true },
+    { username: 'CodeWizard', status: 'Idle', isOnline: true },
+    { username: 'GhostRider', status: 'Offline', isOnline: false },
   ];
 
   return (
-    <div className="h-full w-full flex flex-col bg-neutral-800 text-neutral-300 border-l border-neutral-700">
-      {/* Top Actions */}
-      <div className="flex justify-around p-3 border-b border-neutral-700">
+    // Updated root div styles
+    <div className="h-full w-full flex flex-col bg-zinc-800 text-gray-300 border-l border-zinc-700 p-4 space-y-4 overflow-y-auto">
+
+      {/* User Profile Section - Conditional */}
+      {isLoggedIn && userProfile && (
+        // Updated styles for profile section
+        <div className="flex items-center space-x-3 pb-4 border-b border-zinc-700">
+          <UserAvatar online={true} username={userProfile.username} /> {/* Use styled avatar */}
+          <div className="flex-grow">
+            <div className="font-semibold text-gray-200">{userProfile.username}</div> {/* Updated text */}
+            <div className="text-xs text-gray-400">Online</div> {/* Status - Updated text */}
+          </div>
+          {/* Updated Logout Button style */}
+          <button onClick={handleLogout} className="text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 rounded border border-zinc-600 text-gray-300 hover:text-white focus:outline-none focus:ring-1 focus:ring-zinc-500">
+            Logout
+          </button>
+        </div>
+      )}
+      {!isLoggedIn && (
+        // Updated placeholder text style
+        <div className="text-sm text-gray-400 text-center py-4 border-b border-zinc-700">Please log in</div>
+      )}
+
+      {/* Top Actions - Placeholder Icons */}
+      <div className="flex justify-around pt-2 pb-2 border-b border-zinc-700"> {/* Updated border */}
         <AddFriendIcon />
-        <GroupIcon />
-        {/* Add other action icons as needed */}
+        <CreateGroupIcon />
       </div>
 
-      {/* Friends List */}
-      <div className="flex-grow overflow-y-auto p-2 no-scrollbar">
-        <div className="flex justify-between items-center text-sm mb-2 px-1">
-          <span className="font-semibold text-neutral-100">Friends</span>
-          <span className="text-neutral-400">{dummyFriends.filter(f => f.isOnline).length} Online</span>
-        </div>
-        <div className="space-y-1">
-          {dummyFriends.map(friend => (
-            <FriendListItem
-              key={friend.id}
-              id={friend.id}
-              username={friend.username}
-              statusText={friend.statusText}
-              isOnline={friend.isOnline}
-            />
-          ))}
-        </div>
+      {/* Friends/Groups Toggle - Placeholder */}
+      <div className="flex space-x-1 p-1 bg-zinc-900 rounded-md"> {/* Updated toggle bg */}
+        <button className="flex-1 py-1 px-2 rounded text-xs font-medium bg-zinc-700 text-white focus:outline-none"> {/* Example active */}
+          Friends
+        </button>
+        <button className="flex-1 py-1 px-2 rounded text-xs font-medium text-gray-400 hover:bg-zinc-700 hover:text-white focus:outline-none"> {/* Example inactive */}
+          Chats
+        </button>
       </div>
 
-      {/* Chats/Groups Button */}
-      <div className="p-3 text-center bg-neutral-900 hover:bg-neutral-700 cursor-pointer border-t border-neutral-700">
-        Chats & Groups
+      {/* Friends List Section */}
+      <div className="flex-grow overflow-y-auto space-y-1 -mr-2 pr-2"> {/* Negative margin trick for scrollbar spacing */}
+        <h3 className="text-xs font-semibold uppercase text-gray-400 mb-2">Online - {dummyFriends.filter(f => f.isOnline).length}</h3>
+        {dummyFriends.filter(f => f.isOnline).map(friend => (
+          <FriendListItem key={friend.username} username={friend.username} status={friend.status} isOnline={friend.isOnline} />
+        ))}
+
+        <h3 className="text-xs font-semibold uppercase text-gray-400 pt-4 mb-2">Offline - {dummyFriends.filter(f => !f.isOnline).length}</h3>
+        {dummyFriends.filter(f => !f.isOnline).map(friend => (
+          <FriendListItem key={friend.username} username={friend.username} status={friend.status} isOnline={friend.isOnline} />
+        ))}
       </div>
+
     </div>
   );
 };

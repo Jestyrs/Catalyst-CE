@@ -20,11 +20,12 @@ public:
                  CefString& exception) override; // Exception string (if any)
 
 private:
-    // Helper function to simplify cefQuery execution
-    // Logs errors internally if V8 exceptions occur.
+    // Helper function to simplify executing cefQuery for API calls
+    // MODIFIED: Added payloadJson parameter to match .cpp definition
     void ExecuteCefQuery(CefRefPtr<CefV8Context> context,
                          const std::string& request,
-                         const CefV8ValueList& arguments);
+                         const CefV8ValueList& arguments,
+                         const std::string& payloadJson = "{}"); // Default value included
 
     IMPLEMENT_REFCOUNTING(GameLauncherApiHandler);
     // Disallow copy construction and assignment.

@@ -60,7 +60,14 @@ void LauncherRenderProcessHandler::OnContextCreated(CefRefPtr<CefBrowser> browse
     LOG(INFO) << "LauncherRenderProcessHandler::OnContextCreated - api_object created successfully.";
 
     // Create and attach functions to the api_object
-    const char* function_names[] = {"getGameList", "getAuthStatus", "getVersion"};
+    const char* function_names[] = {
+        "getGameList", 
+        "getAuthStatus", 
+        "getVersion", 
+        "login", 
+        "logout",
+        "performGameAction"
+    };
     for (const char* func_name : function_names) {
         CefRefPtr<CefV8Value> func = CefV8Value::CreateFunction(func_name, api_handler);
         if (!func) {

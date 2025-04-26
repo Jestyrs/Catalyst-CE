@@ -10,12 +10,19 @@ GameLauncherApiHandler::GameLauncherApiHandler() = default;
 
 // Helper function to execute cefQuery
 // Logs errors internally if V8 exceptions occur.
+// MODIFIED: Added payloadJson parameter
 void GameLauncherApiHandler::ExecuteCefQuery(CefRefPtr<CefV8Context> context,
                                              const std::string& request,
-                                             const CefV8ValueList& arguments) {
+                                             const CefV8ValueList& arguments,
+                                             const std::string& payloadJson) { 
     // Argument check (simplified - just ensure callbacks are functions)
     if (arguments.size() < 2 || !arguments[0]->IsFunction() || !arguments[1]->IsFunction()) {
-        LOG(ERROR) << "API function '" << request << "' requires two function arguments (successCallback, failureCallback).";
+        // Construct the error message first
+        std::ostringstream error_stream;
+        error_stream << "API function '" << request.c_str() 
+                     << "' requires two function arguments (successCallback, failureCallback).";
+        // Log the constructed string
+        LOG(ERROR) << error_stream.str().c_str();
         // Can't easily set V8 exception here, caller should ideally validate args beforehand if needed.
         return; 
     }
@@ -27,8 +34,8 @@ void GameLauncherApiHandler::ExecuteCefQuery(CefRefPtr<CefV8Context> context,
         // --- MODIFIED: Format request string as NameRequest:Payload ---
         // Construct the request string expected by the browser handler (e.g., "getGameListRequest:{}")
         std::string browser_request_string = request + "Request:"; // Append suffix and colon
-        // Send an empty JSON object '{}' for requests without a payload to avoid browser-side parse errors.
-        browser_request_string += "{}";
+        // --- MODIFIED: Use payloadJson --- 
+        browser_request_string += payloadJson; // Use provided payload or default {}
 
         // --- MODIFIED: Construct a SINGLE argument object for cefQuery --- 
         CefRefPtr<CefV8Value> queryArgObject = CefV8Value::CreateObject(nullptr, nullptr);
@@ -96,15 +103,81 @@ bool GameLauncherApiHandler::Execute(const CefString& name,
     LOG(INFO) << "GameLauncherApiHandler::Execute called for function: " << functionName;
 
     // --- Route based on function name --- 
+    // UPDATED: Removed 'login' from this group
     if (functionName == "getGameList" || 
         functionName == "getAuthStatus" || 
-        functionName == "getVersion") 
+        functionName == "getVersion" ||
+        functionName == "logout") 
     {
         // These functions simply pass the name as the request string (to be formatted in ExecuteCefQuery)
         // We expect arguments[0] = successCallback, arguments[1] = failureCallback
-        ExecuteCefQuery(context, functionName, arguments);
+        ExecuteCefQuery(context, functionName, arguments, "{}"); // Pass default empty payload {}
         // Return true because the call was handled (async response pending)
         return true; 
+    }
+    // --- NEW: Handle 'login' which now requires username/password payload ---
+    else if (functionName == "login")
+    {
+        LOG(INFO) << "'login' function invoked. Received " << arguments.size() << " arguments. Checking signature...";
+
+        // Expects: username (string), password (string), onSuccess (func), onFailure (func)
+        if (arguments.size() != 4 || 
+            !arguments[0]->IsString() || 
+            !arguments[1]->IsString() ||
+            !arguments[2]->IsFunction() ||
+            !arguments[3]->IsFunction()) 
+        {
+            exception = CefString("login requires arguments: (username: string, password: string, onSuccess: function, onFailure: function)");
+            LOG(ERROR) << exception.ToString();
+            return true; // Exception set
+        }
+
+        std::string username = arguments[0]->GetStringValue().ToString();
+        std::string password = arguments[1]->GetStringValue().ToString();
+        // TODO: Add proper JSON escaping if username/password can contain quotes or backslashes!
+        std::string payload = "{\"username\":\"" + username + "\",\"password\":\"" + password + "\"}";
+        LOG(INFO) << "Login payload: " << payload;
+
+        // Create a list containing only the callback functions
+        CefV8ValueList callbacksOnlyArgs;
+        callbacksOnlyArgs.push_back(arguments[2]); // onSuccess
+        callbacksOnlyArgs.push_back(arguments[3]); // onFailure
+
+        // Call ExecuteCefQuery with the function name, callbacks, and the constructed payload
+        ExecuteCefQuery(context, functionName, callbacksOnlyArgs, payload);
+        return true; // Handled
+    }
+    // NEW: Handle performGameAction which requires a payload
+    else if (functionName == "performGameAction") 
+    {
+        // Expects: action (string), gameId (string), onSuccess (func), onFailure (func)
+        if (arguments.size() != 4 || 
+            !arguments[0]->IsString() || 
+            !arguments[1]->IsString() ||
+            !arguments[2]->IsFunction() ||
+            !arguments[3]->IsFunction()) 
+        {
+            exception = CefString("performGameAction requires arguments: (action: string, gameId: string, onSuccess: function, onFailure: function)");
+            LOG(ERROR) << exception.ToString();
+            return true; // Exception set
+        }
+
+        std::string action = arguments[0]->GetStringValue().ToString();
+        std::string gameId = arguments[1]->GetStringValue().ToString();
+
+        // Construct JSON payload (simple string concatenation)
+        // Ensure proper escaping if action/gameId can contain quotes!
+        std::string payload = "{\"action\":\"" + action + "\",\"gameId\":\"" + gameId + "\"}";
+        LOG(INFO) << "performGameAction payload: " << payload;
+
+        // Create a list containing only the callbacks
+        CefV8ValueList callbacksOnlyArgs;
+        callbacksOnlyArgs.push_back(arguments[2]);
+        callbacksOnlyArgs.push_back(arguments[3]);
+
+        // Call ExecuteCefQuery with the specific payload
+        ExecuteCefQuery(context, functionName, callbacksOnlyArgs, payload);
+        return true; // Handled
     }
     // Add more 'else if' blocks here for other API functions like installGame, launchGame etc.
     // else if (functionName == "installGame") {

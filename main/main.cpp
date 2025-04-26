@@ -298,12 +298,16 @@ int wWinMain(HINSTANCE hInstance,
     std::filesystem::path exe_path = GetExecutableDir() / L"GameLauncher.exe"; // Adjust if your exe name is different
     CefString(&settings.browser_subprocess_path) = exe_path.wstring();
 
-    LOG(INFO) << "Calling CefInitialize... Log file path: " << log_path.string();
+    LOG(INFO) << "Attempting CefInitialize. Log file configured at: " << log_path.string();
+
     // IMPORTANT: Pass the 'app' instance to CefInitialize for the main process.
     // The sandbox_info is nullptr because we set settings.no_sandbox = true;
     bool cef_initialized = CefInitialize(main_args, settings, app.get(), nullptr);
+
+    LOG(INFO) << "CefInitialize returned: " << (cef_initialized ? "true" : "false");
+
     if (!cef_initialized) {
-        LOG(FATAL) << "CefInitialize failed!";
+        LOG(FATAL) << "CefInitialize failed! Check previous logs for details.";
         curl_global_cleanup(); // Cleanup curl
         Cleanup(hInstance); // Attempt cleanup
         return 1;
@@ -431,12 +435,16 @@ int main(int argc, char* argv[]) {
     std::filesystem::path exe_path = std::filesystem::current_path() / "GameLauncher"; // Adjust if your exe name is different
     CefString(&settings.browser_subprocess_path) = exe_path.wstring();
 
-    LOG(INFO) << "Calling CefInitialize... Log file path: " << log_path.string();
+    LOG(INFO) << "Attempting CefInitialize. Log file configured at: " << log_path.string();
+
     // IMPORTANT: Pass the 'app' instance to CefInitialize for the main process.
     // The sandbox_info is nullptr because we set settings.no_sandbox = true;
     bool cef_initialized = CefInitialize(main_args, settings, app.get(), nullptr);
+
+    LOG(INFO) << "CefInitialize returned: " << (cef_initialized ? "true" : "false");
+
     if (!cef_initialized) {
-        LOG(FATAL) << "CefInitialize failed!";
+        LOG(FATAL) << "CefInitialize failed! Check previous logs for details.";
         curl_global_cleanup(); // Cleanup curl
         return 1;
     }

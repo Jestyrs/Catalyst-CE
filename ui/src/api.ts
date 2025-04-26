@@ -45,7 +45,7 @@ export interface GameLauncherAPI {
   getAuthStatus: (onSuccess: (statusJson: string) => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
   getVersion: (onSuccess: (version: string) => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
   performGameAction: (action: 'install' | 'launch' | 'update' | 'verify' | 'repair' | 'cancel', gameId: string, onSuccess: () => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
-  login: (onSuccess: (statusJson: string) => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
+  login: (username: string, password: string, onSuccess: (statusJson: string) => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
   logout: (onSuccess: (statusJson: string) => void, onFailure: (errorCode: number, errorMessage: string) => void) => void;
 
   // Synchronous methods (if any - less common for potentially long operations)

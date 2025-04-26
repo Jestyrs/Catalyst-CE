@@ -8,26 +8,26 @@ interface NavItemProps {
   onClick: () => void;
 }
 const NavItem: React.FC<NavItemProps> = ({ icon, label, isActive, onClick }) => {
-  const baseClasses = "flex flex-col items-center justify-center w-16 h-16 rounded cursor-pointer";
-  const activeClasses = isActive ? "bg-neutral-600 text-neutral-100" : "text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100";
+  const baseClasses = "flex flex-col items-center justify-center w-16 h-16 rounded cursor-pointer transition-colors duration-150 ease-in-out";
+  const activeClasses = isActive ? "bg-purple-600 text-white" : "text-gray-400 hover:bg-zinc-700 hover:text-white";
   return (
     <div className={`${baseClasses} ${activeClasses}`} onClick={onClick}>
       <div className="w-6 h-6 mb-1">{icon}</div>
-      <span className="text-xs">{label}</span>
+      <span className="text-xs font-medium">{label}</span>
     </div>
   );
 };
 
 // Placeholder FavoriteGameIcon
 const FavoriteGameIcon = ({ id }: { id: string }) => (
-  <div key={id} className="w-12 h-12 rounded bg-neutral-600 flex items-center justify-center text-xs cursor-pointer hover:bg-neutral-500">
-    {id.substring(0, 3)}
+  <div key={id} className="w-12 h-12 rounded bg-zinc-700 flex items-center justify-center text-xs text-gray-300 cursor-pointer hover:bg-zinc-600 transition-colors duration-150 ease-in-out">
+    {id.substring(0, 3).toUpperCase()}
   </div>
 );
 
 // Placeholder AddFavoriteButton
 const AddFavoriteButton = () => (
-  <div className="w-12 h-12 rounded bg-neutral-700 flex items-center justify-center text-neutral-400 cursor-pointer hover:bg-neutral-600">
+  <div className="w-12 h-12 rounded bg-zinc-900 flex items-center justify-center text-gray-500 cursor-pointer hover:bg-zinc-700 hover:text-gray-300 transition-colors duration-150 ease-in-out">
     +
   </div>
 );
@@ -43,7 +43,7 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ activeView, setActiveView /*,
   const dummyFavorites = [{ id: 'game1' }, { id: 'game2' }];
 
   return (
-    <div className="h-full w-full flex flex-col justify-between bg-neutral-800 text-neutral-400 items-center py-4 border-r border-neutral-700">
+    <div className="h-full w-full flex flex-col justify-between bg-zinc-800 text-gray-400 items-center py-4 border-r border-zinc-700">
       {/* Top Navigation Section */}
       <div className="flex flex-col space-y-4 items-center mt-2">
         {/* Replace placeholders with actual icons */}
@@ -54,8 +54,8 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ activeView, setActiveView /*,
       </div>
 
       {/* Favorites Section */}
-      <div className="flex-grow overflow-y-auto mt-6 w-full flex flex-col items-center space-y-2 no-scrollbar">
-        <span className="text-xs uppercase text-neutral-500 mb-2">Favorites</span>
+      <div className="flex-grow overflow-y-auto mt-6 w-full flex flex-col items-center space-y-2 no-scrollbar px-2">
+        <span className="text-xs uppercase font-semibold text-gray-500 mb-2">Favorites</span>
         {dummyFavorites.map(fav => (
           <FavoriteGameIcon key={fav.id} id={fav.id} />
         ))}
@@ -63,8 +63,9 @@ const LeftSidebar: React.FC<LeftSidebarProps> = ({ activeView, setActiveView /*,
       </div>
 
       {/* Optional Bottom Section (if needed) */}
-      <div>
+      <div className="mb-2">
         {/* Settings or other icons could go here */}
+        <NavItem icon={<span>⚙️</span>} label="Settings" onClick={() => setActiveView('Settings')} isActive={activeView === 'Settings'} />
       </div>
     </div>
   );
