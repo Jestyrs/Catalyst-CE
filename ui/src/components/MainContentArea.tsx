@@ -1,6 +1,6 @@
 import React from 'react';
 
-// --- Type Definitions (Copied from App.tsx for now) ---
+// --- Type Definitions ---
 interface Game {
   id: string;
   name: string;
@@ -11,19 +11,7 @@ interface Game {
   progress?: number;
 }
 
-interface UserProfile {
-  username: string;
-  // Add other profile details
-}
-
-type AuthStatus =
-  | { status: 'LoggedIn'; profile: UserProfile }
-  | { status: 'LoggedOut' }
-  | { status: 'LoggingIn' }
-  | { status: 'LoggingOut' }
-  | { status: 'Error'; error?: string; profile?: UserProfile | null };
-
-// --- Child Components (Copied from App.tsx for now) ---
+// --- Child Components ---
 
 // Game Item Component
 const GameItem: React.FC<{ game: Game; isSelected: boolean; onClick: () => void }> = React.memo(({ game, isSelected, onClick }) => {
@@ -93,113 +81,80 @@ const GameDetails: React.FC<{ game: Game | null; onAction: (gameId: string, acti
   );
 };
 
-// Authentication Area Component
-const AuthArea: React.FC<{
-  authStatus: AuthStatus | null;
-  onLogout: () => void;
-  loginError: string | null;
-}> = ({ authStatus, onLogout, loginError }) => {
-  const logoutButtonClasses = "w-full bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded transition duration-150 ease-in-out text-sm";
-
-  return (
-    <div className="text-sm">
-      {loginError && (
-        <p className="text-red-400 bg-red-900 bg-opacity-50 border border-red-700 p-2 rounded mb-3 text-center text-xs">Error: {loginError}</p>
-      )}
-      {authStatus?.status === 'LoggedIn' && (
-        <div className="flex flex-col items-center space-y-2">
-          <p className="text-gray-300">Welcome, <span className="font-semibold text-white">{authStatus.profile.username}</span>!</p>
-          <button
-            onClick={onLogout}
-            className={logoutButtonClasses}
-          >
-            Logout
-          </button>
-        </div>
-      )}
-      {authStatus?.status === 'LoggingIn' && <p className="text-gray-400 text-center">Logging in...</p>}
-      {authStatus?.status === 'LoggingOut' && <p className="text-gray-400 text-center">Logging out...</p>}
-      {authStatus?.status === 'Error' && authStatus.error && !loginError && (
-          <p className="text-red-400 bg-red-900 bg-opacity-50 border border-red-700 p-2 rounded mb-3 text-center text-xs">Session Error: {authStatus.error}</p>
-      )}
-    </div>
-  );
-};
-
+// --- Main Component Props ---
 interface MainContentAreaProps {
   activeView: string;
-  isLoadingGames: boolean;
-  apiError: string | null;
+  isLoading: boolean;
+  error: string | null;
   games: Game[];
   selectedGameId: string | null;
   setSelectedGameId: (id: string | null) => void;
-  authStatus: AuthStatus | null;
-  handleLogout: () => void;
-  loginError: string | null;
   selectedGame: Game | null;
   handleGameAction: (gameId: string, action: string) => void;
+  version: string | null;
 }
 
+// --- Main Component ---
 const MainContentArea: React.FC<MainContentAreaProps> = ({
   activeView,
-  isLoadingGames,
-  apiError,
+  isLoading,
+  error,
   games,
   selectedGameId,
   setSelectedGameId,
-  authStatus,
-  handleLogout,
-  loginError,
   selectedGame,
   handleGameAction
 }) => {
-  return (
-    <main className="flex-grow p-6 overflow-y-auto bg-zinc-900"> 
-       {isLoadingGames ? (
-          <div className="flex justify-center items-center h-full">
-            <p className="text-xl text-gray-400">Loading Launcher Data...</p>
-          </div>
-        ) : apiError ? (
-          <div className="flex justify-center items-center h-full p-10">
-            <p className="text-xl text-red-400 bg-red-900 bg-opacity-50 p-4 rounded border border-red-700">Error: {apiError}</p>
-          </div>
-        ) : activeView === 'Games' ? (
-          <div className="grid grid-cols-3 gap-6 h-full">
-            <div className="col-span-1 flex flex-col h-full overflow-hidden">
-              <h2 className="text-xl font-semibold mb-4 px-3 pt-3 text-gray-200">My Games ({games.length})</h2>
-              <div className="flex-grow overflow-y-auto pr-2 space-y-1 no-scrollbar pl-3 pb-3">
-                {games.length > 0 ? (
-                  games.map(game => (
-                    <GameItem
-                      key={game.id}
-                      game={game}
-                      isSelected={selectedGameId === game.id}
-                      onClick={() => setSelectedGameId(game.id)}
-                    />
-                  ))
-                ) : (
-                  <p className="text-gray-500 text-center py-10">No games found.</p>
-                )}
-              </div>
-              <div className="mt-auto p-3 border-t border-zinc-700"> 
-                <AuthArea
-                  authStatus={authStatus}
-                  onLogout={handleLogout}
-                  loginError={loginError}
-                />
-              </div>
-            </div>
 
-            <div className="col-span-2 h-full overflow-hidden">
-              <GameDetails game={selectedGame} onAction={handleGameAction} />
-            </div>
+  // --- Loading and Error States ---
+  if (isLoading) {
+    return <div className="p-10 text-center text-gray-400">Loading games...</div>;
+  }
+
+  if (error) {
+    return (
+      <div className="p-10 text-center text-red-400 bg-red-900/30 rounded-lg">
+        <h2 className="text-xl font-semibold mb-2">Error</h2>
+        <p>{error}</p>
+      </div>
+    );
+  }
+
+  // --- View Rendering ---
+  const renderContent = () => {
+    switch (activeView) {
+      case 'Games':
+        return (
+          <div>
+            <h2 className="text-xl font-semibold mb-4 text-gray-100">Library</h2>
+            {games.length > 0 ? (
+              games.map((game) => (
+                <GameItem
+                  key={game.id}
+                  game={game}
+                  isSelected={selectedGameId === game.id}
+                  onClick={() => setSelectedGameId(game.id)}
+                />
+              ))
+            ) : (
+              <p className="text-gray-500">No games found in library.</p>
+            )}
           </div>
-        ) : (
-          <div className="flex justify-center items-center h-full">
-            <p className="text-xl text-gray-400">{activeView} View</p>
-          </div>
-        )}
-    </main>
+        );
+      case 'GameDetails':
+        return <GameDetails game={selectedGame} onAction={handleGameAction} />;
+      // Add cases for 'Settings', 'Downloads', etc.
+      default:
+        return <div className="p-10 text-center text-gray-500">Select a view</div>;
+    }
+  };
+
+  return (
+    <div className="p-4">
+      {renderContent()}
+      {/* Conditionally render version at bottom-right - might be better in Layout */}
+      {/* {version && <div className="fixed bottom-1 right-1 text-xs text-gray-500">v{version}</div>} */}
+    </div>
   );
 };
 

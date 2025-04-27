@@ -65,6 +65,7 @@ LauncherMessageRouterHandler::LauncherMessageRouterHandler(std::shared_ptr<core:
     : ipc_service_(std::move(ipc_service)), browser_(browser), weak_ptr_factory_(this) {
     LOG(INFO) << "LauncherMessageRouterHandler created for browser ID: " << (browser ? browser->GetIdentifier() : -1);
     DCHECK(ipc_service_); // Ensure IPC service is valid
+    LOG(INFO) << "[Handler::Constructor] ipc_service_ pointer: " << ipc_service_.get();
     LOG(INFO) << "LauncherMessageRouterHandler created and associated with IPC service.";
     ipc_service_->AddStatusListener(this);
 }
@@ -87,6 +88,9 @@ bool LauncherMessageRouterHandler::OnQuery(CefRefPtr<CefBrowser> browser,
     // Log entry point
     LOG(INFO) << "OnQuery (ID: " << query_id << ") Request: " << request.ToString();
     CEF_REQUIRE_UI_THREAD();
+
+    // Log the state of the IPC service pointer just before the check
+    LOG(INFO) << "[Handler::OnQuery] ipc_service_ pointer before check: " << ipc_service_.get();
 
     // Store callback if persistent (though not used in this example logic)
     if (persistent) {
@@ -117,6 +121,8 @@ bool LauncherMessageRouterHandler::OnQuery(CefRefPtr<CefBrowser> browser,
     // --- Dispatch Request ---
     // Using a series of if/else if. A map lookup could also be used for larger numbers of messages.
     try {
+        // Log the service pointer again right before the check inside the try block
+        LOG(INFO) << "[Handler::OnQuery] ipc_service_ pointer inside try block: " << ipc_service_.get();
         if (!ipc_service_) {
             LOG(ERROR) << "IPC Service is unavailable, cannot handle request: " << message_name;
             SendErrorResponse(callback, "Core service unavailable", ERR_IPC_SERVICE_UNAVAILABLE);
@@ -310,7 +316,7 @@ void LauncherMessageRouterHandler::HandleGetAuthStatus(CefRefPtr<CefMessageRoute
     //     nlohmann::json response;
     //     response["status"] = core::AuthStatusToString(*status_result); // Assuming AuthStatusToString exists
          // Add user profile data if available based on status
-         // if (*status_result == core::AuthStatus::LOGGED_IN) {
+         // if (*status_result == core::AuthStatus::kLoggedIn) {
          //     auto profile_result = ipc_service_->GetUserProfile(); // Hypothetical
          //     if (profile_result.ok()) {
          //        response["profile"] = profile_result->ToJson(); // Assuming UserProfile has ToJson
@@ -345,23 +351,34 @@ void LauncherMessageRouterHandler::HandleLogin(const std::string& json_payload, 
 
         std::string username = payload.at("username").get<std::string>();
         std::string password = payload.at("password").get<std::string>();
-        // Avoid logging password in production!
-        LOG(INFO) << "Attempting login for user: " << username;
+        LOG(INFO) << "Attempting login for user: " << username; // Avoid logging password in production!
 
-        // TODO: Implement actual call to ipc_service_->Login(username, password)
-        // Example structure:
-        // absl::StatusOr<core::UserProfile> login_result = ipc_service_->Login(username, password);
-        // if (login_result.ok()) {
-        //     nlohmann::json response;
-        //     response["status"] = "LOGGED_IN";
-        //     response["profile"] = login_result->ToJson(); // Assuming UserProfile has ToJson
-        //     SendJsonResponse(callback, response);
-        // } else {
-        //     SendErrorResponse(callback, login_result.status().ToString(), static_cast<int>(login_result.status().code()));
-        // }
+        // --- Call IPC Service Login --- 
+        absl::Status login_status = ipc_service_->Login(username, password);
 
-        // Placeholder response until IPC is implemented
-        SendErrorResponse(callback, "Login functionality not fully implemented yet.", ERR_INTERNAL_ERROR);
+        if (login_status.ok()) {
+            LOG(INFO) << "Login successful for user: " << username;
+            // Login succeeded, now fetch the user profile
+            absl::StatusOr<core::UserProfile> profile_result = ipc_service_->GetCurrentUserProfile();
+            if (profile_result.ok()) {
+                LOG(INFO) << "User profile retrieved successfully.";
+                nlohmann::json response;
+                response["status"] = core::AuthStatusToString(core::AuthStatus::kLoggedIn); // Corrected enum member
+                response["profile"] = *profile_result; // Use nlohmann's UserProfile -> json conversion
+                SendJsonResponse(callback, response);
+            } else {
+                // Login succeeded, but profile fetch failed (unexpected state?)
+                LOG(ERROR) << "Login succeeded but failed to retrieve profile: " << profile_result.status();
+                SendErrorResponse(callback, "Login successful, but failed to retrieve profile details.", ERR_INTERNAL_ERROR); 
+            }
+        } else {
+            // Login failed
+            LOG(WARNING) << "Login failed for user " << username << ": " << login_status;
+            SendErrorResponse(callback, login_status.ToString(), static_cast<int>(login_status.code()));
+        }
+
+        // // Placeholder response until IPC is implemented
+        // SendErrorResponse(callback, "Login functionality not fully implemented yet.", ERR_INTERNAL_ERROR);
 
     } catch (const nlohmann::json::parse_error& e) {
         std::string error_msg = absl::StrCat("JSON Parse Error during login: ", e.what());

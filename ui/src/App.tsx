@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useAuth0 } from '@auth0/auth0-react';
 
 import Layout from './components/Layout.tsx';
 
@@ -6,35 +7,32 @@ import Layout from './components/Layout.tsx';
 
 import { Game, AuthStatus, GameLauncherAPI } from './api.ts';
 
-
-
 // --- Main Application Component ---
 
 const App: React.FC = () => {
 
+  // --- Auth0 Hook ---
+  const {
+    loginWithRedirect,
+    loginWithPopup,
+    logout,
+    user,
+    isAuthenticated,
+    isLoading: isLoadingAuth, // Renamed to avoid conflict with isLoadingGames
+    error: authError // Auth0 specific error
+  } = useAuth0();
+
   // --- State ---
 
   const [games, setGames] = useState<Game[]>([]);
-
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-
   const [isLoadingGames, setIsLoadingGames] = useState(true);
-
-  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null);
-
-  const [loginError, setLoginError] = useState<string | null>(null);
-
+  const [loginError, setLoginError] = useState<string | null>(null); // Reinstated for username/password flow errors
   const [api, setApi] = useState<GameLauncherAPI | null>(null);
-
   const [apiError, setApiError] = useState<string | null>(null);
-
   const [activeView, setActiveView] = useState<string>('Games');
-
   const [isLoginModalOpen, setIsLoginModalOpen] = useState<boolean>(false);
-
   const [version, ] = useState<string | null>(null); 
-
-
 
   // --- API Initialization & Data Fetching Effects ---
 
@@ -63,8 +61,6 @@ const App: React.FC = () => {
         setApiError("Failed to connect to the launcher backend. Please restart the launcher.");
 
         // Keep loading games false so the error message shows
-
-        setAuthStatus({ status: 'Error', error: 'API unavailable' });
 
         setGames([]);
 
@@ -162,52 +158,6 @@ const App: React.FC = () => {
 
       },
 
-      getAuthStatus: (
-
-        onSuccess: (status: AuthStatus) => void, // Wrapper expects callback with AuthStatus
-
-        onFailure: FailureCallback
-
-      ) => {
-
-        api.getAuthStatus(
-
-          (statusJson: string) => { // Add explicit type for raw param
-
-            try {
-
-              const parsedStatus: AuthStatus = JSON.parse(statusJson);
-
-              // Add basic validation if needed, e.g., check for 'status' property
-
-              if (parsedStatus && typeof parsedStatus.status === 'string') {
-
-                  onSuccess(parsedStatus); // Call original success with parsed AuthStatus object
-
-              } else {
-
-                  console.error("Parsed getAuthStatus response is invalid:", parsedStatus);
-
-                  onFailure(999, "Invalid data format received for auth status");
-
-              }
-
-            } catch (e) {
-
-              console.error("Failed to parse getAuthStatus response:", e, "Raw:", statusJson);
-
-              onFailure(999, "Failed to parse response from backend");
-
-            }
-
-          },
-
-          onFailure
-
-        );
-
-      },
-
       getVersion: (
 
         onSuccess: (version: string) => void, // Wrapper expects callback with string
@@ -294,12 +244,16 @@ const App: React.FC = () => {
 
       },
 
-      login: (username: string, password: string, onSuccess: (status: AuthStatus) => void, onFailure: FailureCallback) => {
+      login: (
+        payload: { username: string, password?: string }, // Keep password optional for now
+        onSuccess: (result: AuthStatus) => void, // Callback expects AuthStatus
+        onFailure: FailureCallback
+      ) => {
         if (!api || !api.login) return onFailure(500, "API not available");
-        console.log("[apiWrapper] Calling real login for user:", username);
+        console.log("[apiWrapper] Calling real login for user:", payload.username);
         api.login(
-          username, // Pass username
-          password, // Pass password
+          payload.username, // Pass username
+          payload.password ?? '', // Pass password (or empty string if undefined)
           (statusJson: string) => { // Real API Success
             try {
               const parsedStatus = JSON.parse(statusJson) as AuthStatus;
@@ -415,23 +369,23 @@ const App: React.FC = () => {
 
 
 
-        // Fetch Auth Status using the wrapper
+        // Fetch Version using the wrapper
 
-        apiWrapper.getAuthStatus(
+        apiWrapper.getVersion(
 
-          (status: AuthStatus) => { // Add explicit type
+          (version: string) => { // Add explicit type
 
-            console.log("[Initial Fetch] Auth Status Success:", status);
+            console.log("[Initial Fetch] Version Success:", version);
 
-            setAuthStatus(status); // Type is validated within the wrapper
+            // setVersion(version); // Update state
 
           },
 
           (errCode: number, errMsg: string) => { // Add explicit types
 
-            console.error("Failed to fetch initial auth status:", errCode, errMsg);
+            console.error("Failed to fetch initial version:", errCode, errMsg);
 
-            setAuthStatus({ status: 'Error', error: `Failed to get auth status: ${errMsg}` });
+            setApiError(`Failed to get version: ${errMsg} (${errCode})`);
 
           }
 
@@ -446,8 +400,6 @@ const App: React.FC = () => {
         setApiError('An unexpected error occurred while fetching initial data.');
 
         setGames([]);
-
-        setAuthStatus({ status: 'Error', error: 'API Fetch Error' });
 
       } finally {
 
@@ -475,123 +427,55 @@ const App: React.FC = () => {
 
   // Handler for login action
 
-  const handleLogin = () => {
-
-    console.log('Login initiated from TopBar...');
-
+  const handleLoginSubmit = async (username: string): Promise<void> => {
+    console.log(`Initiating Username/Password Login for ${username} via Auth0 popup...`);
     setLoginError(null); // Clear previous errors
-
-    setIsLoginModalOpen(true); // Open the modal
-
-    // The actual API call will happen inside the modal
-
-  };
-
-  const handleCloseLoginModal = () => {
-    setIsLoginModalOpen(false);
-  };
-
-  // Handler for actual login submission (from Modal)
-  const handleLoginSubmit = async (username: string, password: string) => {
-    if (!apiWrapper || !apiWrapper.login) {
-      console.error("Login submit failed: API wrapper or login function not available.");
-      setLoginError("Login service unavailable. Please restart.");
-      setAuthStatus({ status: 'Error', error: 'API unavailable' });
-      return;
-    }
-
-    setAuthStatus({ status: 'LoggingIn' });
-    setLoginError(null);
-
-    // Basic validation (can be expanded in the modal)
-    if (!username || !password) {
-      setLoginError("Username and password are required.");
-      setAuthStatus({ status: 'LoggedOut' }); // Revert optimistic status
-      return;
-    }
-
-    console.log(`Attempting login for user: ${username}`);
+    // isLoadingAuth should be managed by useAuth0's isLoading state, but we can track popup-specific loading if needed.
 
     try {
-      // Assume apiWrapper.login is now promisified or uses callbacks correctly
-      // For this example, we'll simulate the callback structure within the handler
-      apiWrapper.login(
-        username, // Assuming login takes username/password now
-        password,
-        (status: AuthStatus) => { // Success Callback
-          console.log("Login successful via API callback, status:", status);
-          setAuthStatus(status);
-          setIsLoginModalOpen(false); // Close modal on success
-        },
-        (errCode: number, errMsg: string) => { // Failure Callback
-          console.error("Login failed via API callback:", errCode, errMsg);
-          const errorMsg = `Login failed: ${errMsg} (${errCode})`;
-          setLoginError(errorMsg);
-          setAuthStatus({ status: 'Error', error: errorMsg });
-          // Keep modal open on failure to show error
+      await loginWithPopup({
+        authorizationParams: {
+          connection: 'Username-Password-Authentication', // Verify this connection name in Auth0 Dashboard
+          login_hint: username, // Pre-fill username in Auth0 form
+          // screen_hint: 'signup' // Optional: force signup screen
         }
-      );
-    } catch (error) {
-      // This catch block might not be reached if apiWrapper.login uses callbacks
-      // But good practice to have if it could throw synchronously
-      console.error("Synchronous error during login attempt:", error);
-      const errorMsg = "An unexpected error occurred during login.";
-      setLoginError(errorMsg);
-      setAuthStatus({ status: 'Error', error: errorMsg });
+      });
+      console.log('Auth0 Popup login successful.');
+      // State (isAuthenticated, user) should be updated automatically by the SDK after popup success.
+    } catch (error: any) {
+      console.error('Auth0 Popup login failed:', error);
+      // Handle specific errors, e.g., user closing the popup
+      if (error.error === 'popup_closed') {
+        setLoginError('Login cancelled: Popup was closed.');
+      } else {
+        setLoginError(error.error_description || error.message || 'Login failed. Please try again.');
+      }
     }
+    // No need to manually set isLoadingAuth false here, SDK handles it.
   };
 
-  // Handler for logout action
-
-  const handleLogout = () => {
-
-    if (apiWrapper) {
-
-      setAuthStatus({ status: 'LoggingOut' }); // Optimistic
-
-      apiWrapper.logout(
-
-        (status: AuthStatus) => { // Add explicit type
-
-          console.log("Logout successful, status:", status);
-
-          setAuthStatus(status); // Should be { status: 'LoggedOut' }
-
-          setSelectedGameId(null); // Clear selected game on logout
-
-          setActiveView('Games'); // Navigate to default view
-
-        },
-
-        (errCode: number, errMsg: string) => { // Add explicit types
-
-          console.error("Logout failed:", errCode, errMsg);
-
-          // Decide how to handle error: revert to logged-in or show specific error status?
-
-          // Keep profile info if available from previous state for potential 'Error' status display
-
-          const previousProfile = authStatus?.status === 'LoggedIn' ? authStatus.profile : null;
-
-          setAuthStatus({ status: 'Error', error: `Logout failed: ${errMsg}`, profile: previousProfile });
-
-        }
-
-      );
-
-    } else {
-
-      const previousProfile = authStatus?.status === 'LoggedIn' ? authStatus.profile : null;
-
-      setAuthStatus({ status: 'Error', error: 'API unavailable', profile: previousProfile });
-
-      console.error("Logout attempt failed: API wrapper not available.");
-
-    }
-
+  // Handler for Auth0 Google Login
+  const handleLoginWithGoogle = () => {
+    console.log('Initiating Google Login via Auth0 redirect...');
+    // Ensure loginWithRedirect is called correctly from useAuth0
+    loginWithRedirect({ 
+      authorizationParams: {
+        connection: 'google-oauth2',
+        // Optionally add screen_hint: 'signup' or 'login' if needed
+      },
+      appState: { returnTo: window.location.pathname } // Optional: store current path to return after login
+    });
   };
 
+  // Handler for Auth0 Logout
+  const handleLogout = useCallback(() => {
+    console.log('Initiating logout via Auth0...');
+    logout({ logoutParams: { returnTo: window.location.origin } });
+  }, [logout]);
 
+  const handleSelectGame = useCallback((gameId: string | null) => {
+    setSelectedGameId(gameId);
+  }, []);
 
   // Handler for game actions (install, launch, update)
 
@@ -739,36 +623,34 @@ const App: React.FC = () => {
 
   // --- Render Logic ---
 
-  console.log('[App] Rendering with authStatus:', authStatus); // <-- Add log
+  console.log('[App] Rendering with authStatus:', isAuthenticated); // <-- Update log
+
   return (
     <div>
       <Layout
         activeView={activeView}
         setActiveView={handleNavClick}
-        isLoadingGames={isLoadingGames}
-        apiError={apiError}
         games={games}
-        selectedGameId={selectedGameId}
-        setSelectedGameId={setSelectedGameId}
-        authStatus={authStatus}
-        handleLogin={handleLogin}
-        handleLogout={handleLogout}
-        loginError={loginError}
         selectedGame={selectedGame}
+        selectedGameId={selectedGameId} // Added missing prop
+        setSelectedGameId={handleSelectGame}
         handleGameAction={handleGameAction}
+        isLoading={isLoadingGames || isLoadingAuth}
+        error={apiError || (authError ? authError.message : null) || loginError}
+        version={version}
+        // --- Authentication Props ---
+        isAuthenticated={isAuthenticated}
+        user={user}
+        isLoadingAuth={isLoadingAuth} // Added missing prop
         isLoginModalOpen={isLoginModalOpen}
-        handleCloseLoginModal={handleCloseLoginModal}
-        handleLoginSubmit={handleLoginSubmit} // <-- Pass the new handler
+        onOpenLoginModal={() => setIsLoginModalOpen(true)}
+        onCloseLoginModal={() => setIsLoginModalOpen(false)}
+        onLoginSubmit={handleLoginSubmit}
+        onLoginWithGoogle={handleLoginWithGoogle}
+        onLogout={handleLogout}
+        loginError={loginError} // Added missing prop
       />
       {version && <div className="fixed bottom-1 right-1 text-xs text-gray-500">v{version}</div>}
-      {/* Render Login Modal if open - Pass required props */}
-      {/* <LoginModal 
-        isOpen={isLoginModalOpen}
-        onClose={handleCloseLoginModal}
-        onSubmit={handleLoginSubmit}
-        error={loginError} // Pass the specific login error state
-        authStatus={authStatus?.status ?? 'LoggedOut'} // Use nullish coalescing
-      /> */} 
     </div>
   );
 

@@ -24,6 +24,8 @@ LauncherClient::LauncherClient(std::shared_ptr<core::IIPCService> ipc_service,
       launcher_app_(launcher_app), // Store the LauncherApp reference
       message_router_(CefMessageRouterBrowserSide::Create(CefMessageRouterConfig())) { 
     LOG(INFO) << "LauncherClient created.";
+    // Log the initial state of the IPC service pointer
+    LOG(INFO) << "[LauncherClient::Constructor] ipc_service_ pointer: " << ipc_service_.get();
 
     // Message handler will be created and added in OnAfterCreated
 }
@@ -64,6 +66,9 @@ void LauncherClient::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
     }
 
     browser_count_++; // Increment browser count
+
+    // Log the IPC service pointer *before* creating the handler
+    LOG(INFO) << "[LauncherClient::OnAfterCreated] ipc_service_ pointer before handler creation: " << ipc_service_.get();
 
     // Now that the browser exists, create the message handler and add it to the router.
     if (!message_handler_) { // Only create if it doesn't exist

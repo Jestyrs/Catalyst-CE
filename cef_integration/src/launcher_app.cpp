@@ -103,18 +103,9 @@ void LauncherApp::OnContextInitialized() {
     // Specify CEF browser settings here.
     CefBrowserSettings browser_settings;
 
-    // Construct the path to the local built UI file
-    std::filesystem::path executable_dir = GetExecutableDir_LauncherApp();
-    std::filesystem::path index_html_path = executable_dir / "ui" / "dist" / "index.html";
-
-    // Convert the path to a file:/// URL string suitable for CEF
-    std::string initial_url = "file:///";
-    initial_url += index_html_path.string();
-
-    // Replace backslashes with forward slashes for Windows compatibility
-    #ifdef _WIN32
-    std::replace(initial_url.begin(), initial_url.end(), '\\', '/');
-    #endif
+    // --- DEVELOPMENT: Load from Vite Dev Server --- //
+    const std::string initial_url = "http://localhost:5173";
+    // --- END DEVELOPMENT --- //
 
     LOG(INFO) << "Creating browser with start URL: " << initial_url;
 

@@ -1,5 +1,4 @@
 import React from 'react';
-import { AuthStatus } from '../api.ts'; // Import necessary types
 
 // Placeholder components/icons - Replace with actual implementations
 // Apply consistent styling
@@ -35,15 +34,13 @@ const FriendListItem: React.FC<FriendListItemProps> = ({ username, status, isOnl
 
 // --- Component Props Definition ---
 interface RightSidebarProps {
-  authStatus: AuthStatus | null; // Add authStatus
-  handleLogout: () => void;     // Add handleLogout
+  isAuthenticated: boolean; // Use Auth0's state
+  user: any; // Use Auth0's user object (type can be refined)
+  onLogout: () => void; // Use the logout handler passed down
 }
 
 // --- Right Sidebar Component ---
-const RightSidebar: React.FC<RightSidebarProps> = ({ authStatus, handleLogout }) => {
-  const isLoggedIn = authStatus?.status === 'LoggedIn';
-  const userProfile = isLoggedIn ? authStatus.profile : null;
-
+const RightSidebar: React.FC<RightSidebarProps> = ({ isAuthenticated, user, onLogout }) => {
   // Dummy friends data - replace with prop
   const dummyFriends: FriendListItemProps[] = [
     { username: 'ShadowNinja', status: 'In Game - Valorant', isOnline: true }, 
@@ -57,23 +54,30 @@ const RightSidebar: React.FC<RightSidebarProps> = ({ authStatus, handleLogout })
     <div className="h-full w-full flex flex-col bg-zinc-800 text-gray-300 border-l border-zinc-700 p-4 space-y-4 overflow-y-auto">
 
       {/* User Profile Section - Conditional */}
-      {isLoggedIn && userProfile && (
-        // Updated styles for profile section
-        <div className="flex items-center space-x-3 pb-4 border-b border-zinc-700">
-          <UserAvatar online={true} username={userProfile.username} /> {/* Use styled avatar */}
-          <div className="flex-grow">
-            <div className="font-semibold text-gray-200">{userProfile.username}</div> {/* Updated text */}
-            <div className="text-xs text-gray-400">Online</div> {/* Status - Updated text */}
+      {isAuthenticated && user && (
+        <div className="mt-auto p-3 border-t border-zinc-700 flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <UserAvatar username={user.nickname || user.name || user.email} online /> 
+            <div>
+              <div className="text-sm font-medium text-gray-100">{user.nickname || user.name || 'User'}</div>
+              <div className="text-xs text-gray-400 truncate max-w-[100px]" title={user.email}>{user.email}</div> 
+            </div>
           </div>
-          {/* Updated Logout Button style */}
-          <button onClick={handleLogout} className="text-xs px-2 py-1 bg-zinc-700 hover:bg-zinc-600 rounded border border-zinc-600 text-gray-300 hover:text-white focus:outline-none focus:ring-1 focus:ring-zinc-500">
+          <button 
+            onClick={onLogout} // Use the passed onLogout prop
+            className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold py-1 px-3 rounded transition duration-150 ease-in-out"
+            title="Logout"
+          >
             Logout
           </button>
         </div>
       )}
-      {!isLoggedIn && (
-        // Updated placeholder text style
-        <div className="text-sm text-gray-400 text-center py-4 border-b border-zinc-700">Please log in</div>
+
+      {!isAuthenticated && (
+        <div className="mt-auto p-3 border-t border-zinc-700 text-center">
+          <p className="text-xs text-gray-500">Login to see friends</p>
+          {/* Optionally add a login button here if needed, although TopBar handles it */}
+        </div>
       )}
 
       {/* Top Actions - Placeholder Icons */}
